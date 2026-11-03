@@ -1,7 +1,7 @@
 use crate::actions;
 use crate::fmt::count_noun;
 use crate::model::{Action, Item, Outcome, RunMode};
-use crate::scan::caches::owner_is_running_per_ps;
+use crate::scan::caches::{OwnerCheck, owner_check};
 use crate::tools::Tools;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -10,6 +10,8 @@ const RANK_NORMAL: u8 = 1;
 const RANK_VM_TRIM: u8 = 2;
 const INTERRUPT_EXIT_CODE: i32 = 130;
 const OWNER_RUNNING: &str = "its app is running, quit it and run diskdiet again";
+const OWNER_UNKNOWN: &str =
+    "could not check whether its app is running (ps is unavailable), run diskdiet again";
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
@@ -43,8 +45,12 @@ fn run_one(item: &Item, tools: &Tools, mode: RunMode) -> Outcome {
     if INTERRUPTED.load(Ordering::SeqCst) {
         return Outcome::Stopped;
     }
-    if mode == RunMode::Live && owner_is_running_per_ps(item) {
-        return Outcome::Skipped(OWNER_RUNNING.to_owned());
+    if mode == RunMode::Live {
+        match owner_check(item) {
+            OwnerCheck::Running => return Outcome::Skipped(OWNER_RUNNING.to_owned()),
+            OwnerCheck::Unknown => return Outcome::Skipped(OWNER_UNKNOWN.to_owned()),
+            OwnerCheck::Idle => {}
+        }
     }
     actions::execute(item, tools, mode)
 }

@@ -4,7 +4,8 @@ use std::io::{self, Read};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, ExitStatus, Output, Stdio};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -14,37 +15,63 @@ const READ_CHUNK_BYTES: usize = 64 * 1024;
 
 struct PipeReader {
     buffer: Arc<Mutex<Vec<u8>>>,
-    finished: mpsc::Receiver<()>,
+    finished: mpsc::Receiver<bool>,
+}
+
+pub fn drain_pipe(mut source: impl Read, mut on_chunk: impl FnMut(&[u8])) -> bool {
+    let mut chunk = [0u8; READ_CHUNK_BYTES];
+    loop {
+        match source.read(&mut chunk) {
+            Ok(0) => return true,
+            Ok(read) => on_chunk(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
 }
 
 impl PipeReader {
-    fn start(mut stdout: ChildStdout) -> Self {
+    fn start(stdout: ChildStdout) -> Self {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let (done, finished) = mpsc::channel();
         let sink = Arc::clone(&buffer);
         std::thread::spawn(move || {
-            let mut chunk = [0u8; READ_CHUNK_BYTES];
-            while let Ok(read @ 1..) = stdout.read(&mut chunk) {
-                if let Ok(mut bytes) = sink.lock() {
-                    bytes.extend_from_slice(&chunk[..read]);
+            let complete = drain_pipe(stdout, |bytes| {
+                if let Ok(mut collected) = sink.lock() {
+                    collected.extend_from_slice(bytes);
                 }
-            }
-            let _ = done.send(());
+            });
+            let _ = done.send(complete);
         });
         Self { buffer, finished }
     }
 
     fn collect(self) -> Option<Vec<u8>> {
-        let _ = self.finished.recv_timeout(READ_GRACE);
+        match self.finished.recv_timeout(READ_GRACE) {
+            Ok(false) | Err(RecvTimeoutError::Disconnected) => return None,
+            Ok(true) | Err(RecvTimeoutError::Timeout) => {}
+        }
         let mut bytes = self.buffer.lock().ok()?;
         Some(std::mem::take(&mut *bytes))
     }
 }
 
+pub fn announce_exit(mut wait: impl FnMut() -> Result<(), Errno>, exited: mpsc::Sender<()>) {
+    loop {
+        match wait() {
+            Err(Errno::INTR) => {}
+            Ok(()) => {
+                let _ = exited.send(());
+                return;
+            }
+            Err(_) => return,
+        }
+    }
+}
+
 fn announce_exit_without_reaping(pid: Pid, exited: mpsc::Sender<()>) {
     let options = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT;
-    while let Err(Errno::INTR) = waitid(WaitId::Pid(pid), options) {}
-    let _ = exited.send(());
+    announce_exit(|| waitid(WaitId::Pid(pid), options).map(drop), exited);
 }
 
 fn wait_or_kill(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {

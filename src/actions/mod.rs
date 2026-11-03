@@ -12,7 +12,6 @@ use std::io;
 use std::path::Path;
 
 pub use trash::{applescript_escape, trash_script};
-pub use worktree::prune_names;
 
 pub fn execute(item: &Item, tools: &Tools, mode: RunMode) -> Outcome {
     if mode == RunMode::DryRun {

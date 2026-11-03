@@ -22,7 +22,7 @@ pub struct StatusCounts {
     pub risky_ignored: u32,
 }
 
-pub fn count_status(text: &str) -> StatusCounts {
+pub fn count_status(text: &str, worktree: &Path) -> StatusCounts {
     let mut counts = StatusCounts::default();
     let mut fields = text.split('\0').filter(|field| !field.is_empty());
     while let Some(field) = fields.next() {
@@ -34,7 +34,7 @@ pub fn count_status(text: &str) -> StatusCounts {
             continue;
         };
         if code == IGNORED_CODE {
-            counts.risky_ignored += u32::from(!is_build_output(path));
+            counts.risky_ignored += u32::from(!is_build_output(path, worktree));
             continue;
         }
         counts.dirty += 1;
@@ -61,10 +61,10 @@ pub(crate) fn count_hidden_edits(listing: &str, worktree: &Path) -> u32 {
     u32::try_from(hidden).unwrap_or(u32::MAX)
 }
 
-pub(crate) fn local_changes(git: &Path, worktree: &Path) -> Option<StatusCounts> {
+pub fn local_changes(git: &Path, worktree: &Path) -> Option<StatusCounts> {
     let status = run(git, worktree, &STATUS_ARGS)?;
     let listing = run(git, worktree, &LS_FILES_ARGS)?;
-    let counts = count_status(&status);
+    let counts = count_status(&status, worktree);
     Some(StatusCounts {
         dirty: counts.dirty + count_hidden_edits(&listing, worktree),
         risky_ignored: counts.risky_ignored,

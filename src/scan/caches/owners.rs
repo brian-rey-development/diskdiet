@@ -18,8 +18,19 @@ const PS: &str = "ps";
 const PATH_MARKER_PREFIX: char = '/';
 const PS_ARGS: [&str; 3] = ["-A", "-o", "comm="];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerCheck {
+    Idle,
+    Running,
+    Unknown,
+}
+
+fn process_listing() -> Option<String> {
+    run_stdout(Path::new(PS), &PS_ARGS, DEFAULT_TIMEOUT).filter(|listing| !listing.is_empty())
+}
+
 pub(super) fn running_processes() -> String {
-    run_stdout(Path::new(PS), &PS_ARGS, DEFAULT_TIMEOUT).unwrap_or_default()
+    process_listing().unwrap_or_default()
 }
 
 fn owned_path(item: &Item) -> Option<&Path> {
@@ -31,12 +42,24 @@ fn owned_path(item: &Item) -> Option<&Path> {
     (named || located).then_some(path.as_path())
 }
 
-pub(crate) fn owner_is_running_per_ps(item: &Item) -> bool {
+pub fn owner_check_in(item: &Item, processes: Option<&str>) -> OwnerCheck {
     let Some(path) = owned_path(item) else {
-        return false;
+        return OwnerCheck::Idle;
     };
-    let processes = running_processes();
-    named_owner_in(&item.label, &processes) || path_owner_in(path, &processes)
+    let Some(processes) = processes else {
+        return OwnerCheck::Unknown;
+    };
+    if named_owner_in(&item.label, processes) || path_owner_in(path, processes) {
+        return OwnerCheck::Running;
+    }
+    OwnerCheck::Idle
+}
+
+pub(crate) fn owner_check(item: &Item) -> OwnerCheck {
+    match owned_path(item) {
+        Some(_) => owner_check_in(item, process_listing().as_deref()),
+        None => OwnerCheck::Idle,
+    }
 }
 
 pub fn path_owner_in(path: &Path, processes: &str) -> bool {

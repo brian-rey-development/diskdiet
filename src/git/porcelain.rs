@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 pub(crate) const BRANCH_REF_PREFIX: &str = "refs/heads/";
+const WORKTREE_KEY: &str = "worktree";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorktreeEntry {
@@ -40,4 +41,17 @@ fn parse_block(block: &str) -> Option<WorktreeEntry> {
 
 pub fn parse_porcelain(text: &str) -> Vec<WorktreeEntry> {
     text.split("\n\n").filter_map(parse_block).collect()
+}
+
+fn is_worktree_line(line: &str) -> bool {
+    line.split(' ').next() == Some(WORKTREE_KEY)
+}
+
+pub fn listed_paths(text: &str) -> Option<Vec<PathBuf>> {
+    let announced = text.lines().filter(|line| is_worktree_line(line)).count();
+    let paths: Vec<PathBuf> = parse_porcelain(text)
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect();
+    (paths.len() == announced).then_some(paths)
 }

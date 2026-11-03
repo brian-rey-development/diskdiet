@@ -21,7 +21,7 @@ mod paths {
 pub const MACHINE: &str = paths::MACHINE;
 pub const NO_HOME: &str = "HOME is not set";
 const HOME_VAR: &str = "HOME";
-const MOUNT_ROOTS: [(&str, usize); 4] = [
+pub(crate) const MOUNT_ROOTS: [(&str, usize); 4] = [
     ("/Volumes", 1),
     ("/run/media", 2),
     ("/media", 2),
@@ -57,6 +57,16 @@ pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os(HOME_VAR).map(PathBuf::from)
 }
 
+pub fn is_mount_point(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    match (rustix::fs::stat(path), rustix::fs::stat(parent)) {
+        (Ok(own), Ok(outer)) => own.st_dev != outer.st_dev,
+        _ => false,
+    }
+}
+
 pub fn volume_is_mounted(path: &Path) -> bool {
     for (root, depth) in MOUNT_ROOTS {
         let Ok(rest) = path.strip_prefix(root) else {
@@ -66,10 +76,10 @@ pub fn volume_is_mounted(path: &Path) -> bool {
         if parts.len() < depth {
             return true;
         }
-        return parts
+        let mount = parts
             .iter()
-            .fold(PathBuf::from(root), |acc, part| acc.join(part))
-            .exists();
+            .fold(PathBuf::from(root), |acc, part| acc.join(part));
+        return is_mount_point(&mount);
     }
     true
 }

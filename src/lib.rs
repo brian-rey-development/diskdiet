@@ -9,7 +9,7 @@ pub mod git;
 pub mod log;
 pub mod model;
 pub mod platform;
-pub(crate) mod process;
+pub mod process;
 pub mod safety;
 pub mod scan;
 pub mod session;

@@ -8,6 +8,7 @@ pub const GIT: &str = "git";
 
 const GITIGNORE: &str = ".env\ntarget/\nnode_modules/\n";
 const MAIN_BRANCH: &str = "main";
+const MANIFEST: &str = "Cargo.toml";
 
 pub fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new(GIT)
@@ -32,6 +33,7 @@ pub fn init_repo(repo: &Path) -> Result<()> {
     fs::create_dir_all(repo)?;
     git(repo, &["init", "-b", MAIN_BRANCH])?;
     write_file(&repo.join(".gitignore"), GITIGNORE)?;
+    write_file(&repo.join(MANIFEST), "")?;
     commit_file(repo, "README.md", "hello", "initial")
 }
 
