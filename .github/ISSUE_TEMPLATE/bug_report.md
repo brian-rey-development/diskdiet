@@ -17,4 +17,4 @@ The command you ran (for example `diskdiet --dry-run --only build-artifacts`).
 - Installed with (`setup.sh`, other):
 
 **Log lines**
-Relevant lines from `~/Library/Logs/diskdiet.log`, if any. Remove anything private.
+Relevant lines from `~/Library/Logs/diskdiet.log`, with anything private removed.

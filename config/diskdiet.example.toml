@@ -1,29 +1,29 @@
 # diskdiet configuration. Copy to ~/.config/diskdiet/config.toml.
-# Every field is optional. The values below are the defaults.
-# A leading ~ in any path is expanded to your home folder.
+# Every field is optional, and the values below are the defaults.
+# A leading ~ in a path means your home folder.
 
 # Folders scanned for git repos, worktrees and build artifacts.
-# Empty means auto-detect whichever of these exist in your home folder:
+# Empty means whichever of these exist in your home folder:
 # Develop, Developer, dev, code, Code, Projects, projects, src, workspace, repos, GitHub, git.
 dev_roots = []
 
-# Paths diskdiet must never report or touch, including everything below them.
+# Paths diskdiet never reports or touches, including everything below them.
 exclude = []
 
-# Extra cache folders to offer as Safe, preselected items (for example ["~/.cache/my-tool"]).
+# Extra cache folders to offer as Safe and preselected, such as ["~/.cache/my-tool"].
 extra_cache_dirs = []
 
-# macOS only. Apps with no sign of use for this many days (Spotlight or app data) are offered for the Trash.
+# macOS only. Apps unused for this many days are offered for the Trash.
 stale_app_days = 90
 
-# Files in the top level of ~/Downloads older than this many days are offered for review.
+# Files at the top level of ~/Downloads older than this many days are offered for review.
 stale_download_days = 90
 
 # node_modules of projects whose package.json is older than this many days are offered for review.
 stale_node_modules_days = 30
 
-# Docker images and build cache newer than this many hours are kept (720 hours is 30 days).
+# Docker images and build cache newer than this many hours are kept (720 is 30 days).
 docker_prune_until_hours = 720
 
-# Show a low disk space warning when free space is below this many GB.
+# Warn when free space drops below this many GB.
 low_space_warning_gb = 100
