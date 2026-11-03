@@ -34,7 +34,7 @@ src/
   freedesktop_trash.rs  move to and empty the Linux Trash per the freedesktop.org spec
 
   scan/                 decides what is junk, never deletes
-    mod.rs              ScanContext, Scanner, SCANNERS, scan_all
+    mod.rs              ScanContext, Scanner, SCANNERS, scan_all, scan_with_progress (per-scanner callback)
     pipeline.rs         size floor, exclusions, risk inheritance, sort order
     support.rs          helpers shared by the scanners
     worktrees/          agent worktrees and stale worktree records
@@ -62,9 +62,14 @@ src/
 
   ui/                   interactive flow and --report
     mod.rs              run, interactive flow
-    notices.rs          intro, spinner and Docker notices
+    notices.rs          intro, live scan spinner and Docker notices
+    scan_progress.rs    running totals per category and the spinner line
     summary.rs          the per-category summary
-    pick.rs             multiselects and confirmations
+    entries.rs          per-category row order, worktree grouping, row labels, Selection
+    pick.rs             multiselects, typed confirmations and the review loop
+    review.rs           review screen, review and category prompts
+    layout.rs           terminal width and truncation helpers
+    theme.rs            cliclack theme that puts the item detail on its own line
     exec.rs             execution order and progress
     finish/             freed-space measurement, problems and the share card
     report.rs           --report table and JSON
@@ -79,7 +84,7 @@ tests/
     actions/            delete, command, trash, worktree, dry_run
     scan/               pipeline, builds, docker, models, apps, downloads, caches
     scan/worktrees/     assess, discover, scan, prune
-    ui/                 exec, notices, pick, report, share
+    ui/                 entries, exec, layout, notices, pick, report, review, scan_progress, share
 ```
 
 The modules form layers, and imports only point downward. The leaf modules (`time`, `fmt`, `fsutil`, `platform`, `config`, `disk`, `log`, `model` and `process`) depend on nothing above them. On top of those sit `tools`, `git`, `size`, `safety` and `freedesktop_trash`, which each wrap one external concern. `scan` and `actions` come next and never import each other, which is why a scanner cannot delete anything and an action cannot decide what is junk. Both read only the shared vocabulary in `model.rs`. `session`, `ui` and `cli` sit on top and wire everything together. The test tree mirrors this layout, so a test for `scan/worktrees/assess.rs` lives in `tests/it/scan/worktrees/assess.rs`.
@@ -92,9 +97,9 @@ A run has five stages, and each one hands plain data to the next.
 
 **1. Discover tools.** `Tools::discover` resolves every external program diskdiet may call (git, uv, pnpm, brew, docker, colima, ollama, mise) once, in parallel. Resolution tries the inherited `PATH` first, which answers for most tools without starting any process, and only falls back to the user's shell for tools it did not find, because a tool installed through mise is often invisible to a plain `PATH` lookup. The fallback reads the `PATH` of the user's login shell once (with `$SHELL -lic`, under a timeout), then asks `mise which <tool>`. Every external command runs through `process::run_with_deadline`, which reads output on its own thread and kills the process on timeout, so a hung git, Docker or shell rc file cannot freeze the scan. Missing tools are simply absent, and scanners that need them return nothing.
 
-**2. Scan in parallel.** `scan_all` runs every `Scanner` in `SCANNERS` through rayon, on a pool capped at eight threads, each with a shared read-only `ScanContext` (config, home directory, tools). A scanner has the signature `fn scan(ctx: &ScanContext) -> Vec<Item>` and never panics, so any error means that item is skipped. The results are flattened, items under 1 MB are dropped to keep the lists readable (except worktrees, worktree pruning, the Trash and the Colima disk trim, which matter regardless of size), anything under `config.exclude` is dropped, a `Safe` item that contains a riskier one inherits that risk, `--only` then keeps just the chosen categories (after the inheritance, so every scanner still runs), and the list is sorted by category, then risk, then size descending.
+**2. Scan in parallel.** `scan_all` (or `scan_with_progress`, which also calls a callback with the kept items of each scanner as it finishes, so the UI can show running totals) runs every `Scanner` in `SCANNERS` through rayon, on a pool capped at eight threads, each with a shared read-only `ScanContext` (config, home directory, tools). A scanner has the signature `fn scan(ctx: &ScanContext) -> Vec<Item>` and never panics, so any error means that item is skipped. The results are flattened, items under 1 MB are dropped to keep the lists readable (except worktrees, worktree pruning, the Trash and the Colima disk trim, which matter regardless of size), anything under `config.exclude` is dropped, a `Safe` item that contains a riskier one inherits that risk, `--only` then keeps just the chosen categories (after the inheritance, so every scanner still runs), and the list is sorted by category, then risk, then size descending.
 
-**3. Select.** The UI groups items by `Category::ALL`, shows a summary, and opens one multiselect per non-empty category. Items marked `preselected` start ticked. Items with `typed_confirmation` ask the user to type the word, and are skipped if it does not match. A final confirmation, which defaults to no, closes the step. With `--report` this stage is replaced by a printed table or JSON.
+**3. Select.** The UI groups items by `Category::ALL`, shows a summary, and opens one multiselect per non-empty category, with type-to-filter on lists longer than ten items and worktrees grouped by repository. Items marked `preselected` start ticked. Items with `typed_confirmation` ask the user to type the word right after their category, and are dropped from the selection if it does not match. The picks are kept as a set of item indices, so execution order does not change however the user navigates. A review screen then lists everything selected, grouped by category with subtotals and a grand total, and offers Continue, Change a category or Cancel. Changing a category reopens just that list with the current selection ticked, and only items that were not already selected ask for their typed confirmation again. A final confirmation, which defaults to no, closes the step. With `--report` this stage is replaced by a printed table or JSON.
 
 **4. Execute.** Each selected item goes through `actions::execute(item, tools, mode)`. In dry-run mode the function returns `Outcome::DryRun` before touching anything. Otherwise it deletes a path, moves it to the Trash (through Finder on macOS, through the freedesktop.org layout on Linux), runs the owning tool's own cleanup command, or removes a worktree with git, and the outcome is appended to the log (`platform::log_path`). The Docker VM trim is ordered last, because it can only return space that the prunes have already released.
 

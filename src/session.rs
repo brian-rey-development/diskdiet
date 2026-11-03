@@ -2,7 +2,7 @@ use crate::cli::Args;
 use crate::config::{self, Config};
 use crate::model::{Category, Item};
 use crate::platform::{self, NO_HOME};
-use crate::scan::{ScanContext, scan_only};
+use crate::scan::{OnScannerFinished, ScanContext, scan_with_progress};
 use crate::tools::Tools;
 use anyhow::{Context, bail};
 use std::num::NonZeroUsize;
@@ -47,11 +47,20 @@ pub(crate) fn scan_with_tools(
     config: Config,
     only: &[Category],
 ) -> (ScanContext, Vec<Item>) {
+    scan_with_tools_reporting(home, config, only, &|_| {})
+}
+
+pub(crate) fn scan_with_tools_reporting(
+    home: PathBuf,
+    config: Config,
+    only: &[Category],
+    on_finished: OnScannerFinished<'_>,
+) -> (ScanContext, Vec<Item>) {
     let ctx = ScanContext {
         home,
         config,
         tools: Tools::discover(),
     };
-    let items = scan_only(&ctx, only);
+    let items = scan_with_progress(&ctx, only, on_finished);
     (ctx, items)
 }

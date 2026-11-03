@@ -1,106 +1,171 @@
+use super::entries::{DANGER_TAG, Selection, category_entries, display_label};
+use super::layout::{fit_lines, list_row_budget, terminal_width};
+use super::review::{self, ReviewChoice};
 use crate::fmt::count_noun;
 use crate::model::{Category, Item, Risk, RunMode};
 use crate::size::format_bytes;
 use console::style;
 use std::io;
 
+pub use super::entries::item_label;
+
 const MAX_ROWS: usize = 12;
-const SIZE_COLUMN: usize = 9;
-const DANGER_TAG: &str = "DANGER";
-
-fn total_bytes(entries: &[(usize, &Item)]) -> u64 {
-    entries.iter().map(|(_, item)| item.bytes).sum()
-}
-
-pub fn item_label(item: &Item) -> String {
-    let size = format!("{:>SIZE_COLUMN$}", format_bytes(item.bytes));
-    if item.risk != Risk::Danger {
-        return format!("{size}  {}", item.label);
-    }
-    let tag = style(DANGER_TAG).red().bold();
-    format!("{size}  {tag} {}", style(&item.label).red())
-}
+const FILTER_THRESHOLD: usize = 10;
+const FILTER_HINT: &str = "type to filter";
 
 pub fn starts_selected(item: &Item) -> bool {
     item.preselected && item.risk != Risk::Danger && item.typed_confirmation.is_none()
 }
 
-fn build_prompt(category: Category, entries: &[(usize, &Item)]) -> cliclack::MultiSelect<usize> {
+fn is_filterable(entries: &[(usize, &Item)]) -> bool {
+    entries.len() > FILTER_THRESHOLD
+}
+
+fn prompt_title(category: Category, entries: &[(usize, &Item)]) -> String {
+    let bytes: u64 = entries.iter().map(|(_, item)| item.bytes).sum();
     let title = format!(
         "{} · {}",
         category.title(),
-        style(format_bytes(total_bytes(entries))).bold()
+        style(format_bytes(bytes)).bold()
     );
-    let mut prompt = cliclack::multiselect(title)
+    if is_filterable(entries) {
+        return format!("{title} {}", style(format!("· {FILTER_HINT}")).dim());
+    }
+    title
+}
+
+fn build_prompt(
+    category: Category,
+    entries: &[(usize, &Item)],
+    initial: &Selection,
+) -> cliclack::MultiSelect<usize> {
+    let mut prompt = cliclack::multiselect(prompt_title(category, entries))
         .required(false)
         .max_rows(MAX_ROWS);
-    if entries.len() > MAX_ROWS {
+    if is_filterable(entries) {
         prompt = prompt.filter_mode();
     }
     for (index, item) in entries {
         prompt = prompt.item(*index, item_label(item), &item.detail);
     }
-    let initial = entries
+    let preselected = entries
         .iter()
-        .filter(|(_, item)| starts_selected(item))
-        .map(|(index, _)| *index);
-    prompt.initial_values(initial.collect())
+        .map(|(index, _)| *index)
+        .filter(|index| initial.contains(index));
+    prompt.initial_values(preselected.collect())
 }
 
-pub(crate) fn pick_category(
+fn pick_category(
     category: Category,
     entries: &[(usize, &Item)],
+    initial: &Selection,
 ) -> io::Result<Vec<usize>> {
-    cliclack::log::remark(category.blurb())?;
-    build_prompt(category, entries).interact()
+    let blurb = fit_lines(category.blurb(), list_row_budget(terminal_width()));
+    cliclack::log::remark(blurb)?;
+    build_prompt(category, entries, initial).interact()
+}
+
+fn announce_danger(item: &Item) -> io::Result<()> {
+    let heading = format!(
+        "{} {}",
+        style(DANGER_TAG).red().bold(),
+        style(display_label(item)).bold()
+    );
+    let detail = fit_lines(&item.detail, list_row_budget(terminal_width()));
+    cliclack::log::warning(format!("{heading}\n{detail}"))
 }
 
 pub(crate) fn confirm_typed(item: &Item) -> io::Result<bool> {
     let Some(word) = &item.typed_confirmation else {
         return Ok(true);
     };
-    let heading = format!(
-        "{} {}",
-        style(DANGER_TAG).red().bold(),
-        style(&item.label).bold()
-    );
+    announce_danger(item)?;
     let prompt = format!(
-        "{heading}\n{}\nType {} to remove it, or press Enter to keep it",
-        item.detail,
+        "Type {} to remove it, or press Enter to keep it",
         style(word).bold()
     );
     let answer: String = cliclack::input(prompt).required(false).interact()?;
     if answer.trim() == word {
         return Ok(true);
     }
-    cliclack::log::info(format!("Kept {}", item.label))?;
+    cliclack::log::info(format!("Kept {}", display_label(item)))?;
     Ok(false)
 }
 
-fn confirm_dangerous(items: &[Item], picked: Vec<usize>) -> io::Result<Vec<usize>> {
+fn confirm_new_dangers(
+    items: &[Item],
+    already_confirmed: &Selection,
+    picked: Vec<usize>,
+) -> io::Result<Vec<usize>> {
     let mut confirmed = Vec::with_capacity(picked.len());
     for index in picked {
-        if confirm_typed(&items[index])? {
+        if already_confirmed.contains(&index) || confirm_typed(&items[index])? {
             confirmed.push(index);
         }
     }
     Ok(confirmed)
 }
 
-pub(crate) fn pick_all(items: &[Item]) -> io::Result<Vec<usize>> {
-    let mut chosen = Vec::new();
+fn pick_and_confirm(
+    items: &[Item],
+    category: Category,
+    current: &Selection,
+    selected: &mut Selection,
+) -> io::Result<()> {
+    let entries = category_entries(items, category);
+    let picked = pick_category(category, &entries, current)?;
+    let kept = confirm_new_dangers(items, current, picked)?;
+    selected.retain(|index| items[*index].category != category);
+    selected.extend(kept);
+    Ok(())
+}
+
+fn initial_picks(items: &[Item], category: Category) -> Selection {
+    category_entries(items, category)
+        .into_iter()
+        .filter(|(_, item)| starts_selected(item))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+fn first_pass(items: &[Item]) -> io::Result<Selection> {
+    let mut selected = Selection::new();
     for category in Category::ALL {
-        let entries: Vec<(usize, &Item)> = items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| item.category == category)
-            .collect();
-        if entries.is_empty() {
+        if category_entries(items, category).is_empty() {
             continue;
         }
-        chosen.extend(pick_category(category, &entries)?);
+        let initial = initial_picks(items, category);
+        pick_and_confirm(items, category, &initial, &mut selected)?;
     }
-    confirm_dangerous(items, chosen)
+    Ok(selected)
+}
+
+fn edit_category(items: &[Item], selected: &mut Selection) -> io::Result<()> {
+    let Some(category) = review::ask_category(items, selected)? else {
+        return Ok(());
+    };
+    let current: Selection = selected
+        .iter()
+        .copied()
+        .filter(|index| items[*index].category == category)
+        .collect();
+    pick_and_confirm(items, category, &current, selected)
+}
+
+fn review_loop(items: &[Item], mut selected: Selection) -> io::Result<Option<Vec<usize>>> {
+    while !selected.is_empty() {
+        review::show_review(items, &selected)?;
+        match review::ask_choice()? {
+            ReviewChoice::Confirm => return Ok(Some(selected.into_iter().collect())),
+            ReviewChoice::Cancel => return Ok(None),
+            ReviewChoice::Edit => edit_category(items, &mut selected)?,
+        }
+    }
+    Ok(Some(Vec::new()))
+}
+
+pub(crate) fn choose(items: &[Item]) -> io::Result<Option<Vec<usize>>> {
+    review_loop(items, first_pass(items)?)
 }
 
 pub fn confirm_prompt(count: usize, bytes: u64, mode: RunMode) -> String {

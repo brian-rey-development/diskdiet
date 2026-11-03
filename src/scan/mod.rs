@@ -84,19 +84,53 @@ fn with_panics_logged<T>(home: &Path, work: impl FnOnce() -> T) -> T {
 }
 
 pub fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
-    with_panics_logged(&ctx.home, || scan_selected(ctx, only))
+    scan_with_progress(ctx, only, &|_| {})
 }
 
-fn scan_selected(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
+pub struct ScannerReport<'a> {
+    pub name: &'static str,
+    pub items: &'a [Item],
+}
+
+pub type OnScannerFinished<'a> = &'a (dyn Fn(ScannerReport<'_>) + Sync);
+
+pub fn scan_with_progress(
+    ctx: &ScanContext,
+    only: &[Category],
+    on_finished: OnScannerFinished<'_>,
+) -> Vec<Item> {
+    with_panics_logged(&ctx.home, || scan_selected(ctx, only, on_finished))
+}
+
+fn scan_selected(
+    ctx: &ScanContext,
+    only: &[Category],
+    on_finished: OnScannerFinished<'_>,
+) -> Vec<Item> {
     let mut items: Vec<Item> = SCANNERS
         .par_iter()
-        .flat_map(|scanner| run_scanner(scanner.scan, ctx))
-        .filter(|item| is_kept(item, &ctx.config.exclude))
+        .flat_map(|scanner| run_and_report(scanner, ctx, on_finished))
         .collect();
     inherit_child_risk(&mut items);
     items.retain(|item| is_wanted(only, item.category));
     items.sort_by(compare_items);
     items
+}
+
+fn run_and_report(
+    scanner: &Scanner,
+    ctx: &ScanContext,
+    on_finished: OnScannerFinished<'_>,
+) -> Vec<Item> {
+    let kept: Vec<Item> = run_scanner(scanner.scan, ctx)
+        .into_iter()
+        .filter(|item| is_kept(item, &ctx.config.exclude))
+        .collect();
+    on_finished(ScannerReport {
+        name: scanner.name,
+        items: &kept,
+    });
+    kept
 }
 
 fn run_scanner(scan: ScanFn, ctx: &ScanContext) -> Vec<Item> {

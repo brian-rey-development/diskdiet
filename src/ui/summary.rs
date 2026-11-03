@@ -1,3 +1,4 @@
+use super::layout::{fit, list_row_budget, terminal_width, visible_width};
 use crate::fmt::count_noun;
 use crate::model::{Category, Item};
 use crate::size::format_bytes;
@@ -7,6 +8,7 @@ use std::io;
 
 const SIZE_COLUMN: usize = 9;
 const COLUMN_GAP: &str = "  ";
+const HOW_TO: &str = "Space toggles, Enter confirms. Only safe items start ticked.";
 
 struct CategoryRow {
     category: Category,
@@ -31,10 +33,10 @@ fn category_rows(items: &[Item]) -> Vec<CategoryRow> {
     rows
 }
 
-fn render_row(row: &CategoryRow, title_width: usize) -> String {
+fn render_row(row: &CategoryRow, title_width: usize, count_width: usize) -> String {
     let size = format!("{:>SIZE_COLUMN$}", format_bytes(row.bytes));
     let title = format!("{:<title_width$}", row.category.title());
-    let count = count_noun(row.count, "item", "items");
+    let count = format!("{:>count_width$}", count_noun(row.count, "item", "items"));
     format!(
         "{title}{COLUMN_GAP}{}{COLUMN_GAP}{}",
         style(size).bold(),
@@ -42,15 +44,19 @@ fn render_row(row: &CategoryRow, title_width: usize) -> String {
     )
 }
 
-fn render_rows(rows: &[CategoryRow]) -> String {
-    let title_width = rows
-        .iter()
-        .map(|row| row.category.title().len())
+fn widest(rows: &[CategoryRow], text: impl Fn(&CategoryRow) -> String) -> usize {
+    rows.iter()
+        .map(|row| visible_width(&text(row)))
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
+
+fn render_rows(rows: &[CategoryRow]) -> String {
+    let title_width = widest(rows, |row| row.category.title().to_owned());
+    let count_width = widest(rows, |row| count_noun(row.count, "item", "items"));
     let lines: Vec<String> = rows
         .iter()
-        .map(|row| render_row(row, title_width))
+        .map(|row| render_row(row, title_width, count_width))
         .collect();
     lines.join("\n")
 }
@@ -61,5 +67,6 @@ pub(super) fn show_summary(items: &[Item]) -> io::Result<()> {
         "You can lose up to {}",
         style(format_bytes(total)).bold().green()
     );
-    cliclack::note(title, render_rows(&category_rows(items)))
+    cliclack::note(title, render_rows(&category_rows(items)))?;
+    cliclack::log::remark(fit(HOW_TO, list_row_budget(terminal_width())))
 }

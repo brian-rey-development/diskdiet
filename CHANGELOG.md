@@ -6,7 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The scan spinner now updates as each scanner finishes, showing how many have completed and the running total per category, biggest first and limited to the categories you asked for with `--only`. The scan exposes this through `scan_with_progress`, which calls back once per finished scanner and keeps `scan` independent of the UI, and `--report` stays silent.
+- A review screen after the per-category picks lists every selected item grouped by category, with a subtotal for each group and a grand total. From it you can continue, cancel, or choose a category and edit it again with the current selection preselected. A dangerous item that is newly selected during an edit asks for its typed confirmation just as it does the first time.
+- Categories with more than ten items open with type-to-filter enabled, and the title says so.
+
 ### Changed
+
+- Git worktrees are listed grouped by repository and sorted by branch name, and each row shows its repository as `repo › branch`.
+- The detail of the highlighted item moves to its own line under the row, and every detail, label, blurb, review row, spinner message and progress message is cut to the terminal width with an ellipsis instead of wrapping.
+- The typed confirmation for a dangerous worktree now appears right after the category it belongs to, with the item's details in a warning above the prompt, instead of after every category has been answered.
+- The summary table right-aligns the item counts and is followed by a one-line reminder of the keys.
+- The execution progress bar shows the repository of a worktree and keeps the item name inside the terminal width.
 
 - Startup is faster because tools are looked up on `PATH` first, and the login shell is only started when a tool is not found there.
 - Fewer git calls per scan, because repositories without linked worktrees are skipped before git is asked about them.

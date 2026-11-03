@@ -27,12 +27,16 @@ Enter
 
 Wait+Screen@60s /Git worktrees ·/
 Sleep 1.5s
-Down
-Sleep 300ms
-Down
+Up
 Sleep 300ms
 Space
 Sleep 1s
+Enter
+
+Wait+Screen@10s /press Enter to keep it/
+Sleep 1s
+Type "delete"
+Sleep 500ms
 Enter
 
 Wait+Screen@10s /Build artifacts ·/
@@ -43,10 +47,25 @@ Wait+Screen@10s /Downloads ·/
 Sleep 1s
 Enter
 
-Wait+Screen@10s /press Enter to keep it/
+Wait+Screen@10s /Does this look right/
+Sleep 2.5s
+Down
+Sleep 300ms
+Enter
+
+Wait+Screen@10s /Which category/
 Sleep 1s
-Type "delete"
-Sleep 500ms
+Down
+Sleep 300ms
+Enter
+
+Sleep 1.5s
+Space
+Sleep 1s
+Enter
+
+Wait+Screen@10s /Total · 4 items/
+Sleep 2.5s
 Enter
 
 Wait+Screen@10s /Continue\?/

@@ -2,7 +2,7 @@
 
 A disk cleaner is a program whose whole job is deleting things, so its trust has to come from rules, not from good intentions. These are the rules diskdiet follows. Most of them exist because of something that happened (or nearly happened) while cleaning a real Mac, and the ones where the plan does not record a specific incident say so plainly. Every rule has a test in the repository, and a change that weakens a rule has to change the test first.
 
-The short version for users. Nothing is deleted without a final confirmation, risky items start unticked, `--dry-run` shows everything without deleting anything, and every real action is written to `~/Library/Logs/diskdiet.log`.
+The short version for users. Nothing is deleted without a review screen and a final confirmation, risky items start unticked, `--dry-run` shows everything without deleting anything, and every real action is written to `~/Library/Logs/diskdiet.log`.
 
 ## 1. A cache tag alone never marks a folder as disposable
 
@@ -24,7 +24,7 @@ A worktree whose branch has zero commits ahead of the base branch looks finished
 
 ## 5. Dangerous worktrees need a typed confirmation
 
-Ticking a box is too easy to do by accident, especially with a long list. A `Danger` worktree is never preselected, and when you select it diskdiet asks you to type the word `delete` before it is included. If the word does not match, the item is skipped. This costs a few seconds and prevents the one mistake that cannot be undone. The plan does not record a specific incident behind this rule, it is the consequence of rules 3 and 4.
+Ticking a box is too easy to do by accident, especially with a long list. A `Danger` worktree is never preselected, and when you leave the list where you ticked it diskdiet asks you to type the word `delete` before it is included. If you reopen that list from the review screen and tick a dangerous worktree that was not selected before, it asks again. If the word does not match, the item is skipped. This costs a few seconds and prevents the one mistake that cannot be undone. The plan does not record a specific incident behind this rule, it is the consequence of rules 3 and 4.
 
 Minutes can pass between the scan and the deletion, and the agent that owns a worktree may still be writing to it. So only a worktree you confirmed by typing is removed with `git worktree remove --force`. Every other worktree is checked again right before removal, skipped with "it changed since the scan" if anything new appeared, and removed without `--force`, which makes git itself refuse if it finds uncommitted or untracked files.
 
