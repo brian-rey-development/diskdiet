@@ -4,6 +4,7 @@ pub(crate) const BRANCH_REF_PREFIX: &str = "refs/heads/";
 const WORKTREE_KEY: &str = "worktree";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct WorktreeEntry {
     pub path: PathBuf,
     pub head: Option<String>,

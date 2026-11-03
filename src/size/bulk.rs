@@ -156,6 +156,6 @@ fn parse_file(cursor: &mut Cursor, file: u32, device: i32, inode: u64) -> Option
     let allocated = cursor.i64()?;
     Some(Node::File {
         bytes: u64::try_from(allocated).unwrap_or(0),
-        shared: (links > 1).then_some((device as u64, inode)),
+        shared: (links > 1).then_some((i64::from(device).cast_unsigned(), inode)),
     })
 }

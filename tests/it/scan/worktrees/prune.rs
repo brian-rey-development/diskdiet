@@ -36,7 +36,7 @@ fn no_prune_is_offered_while_a_worktree_sits_on_an_unplugged_volume() -> Result<
     fs::remove_dir_all(&unplugged)?;
     let gitdir = repo.join(".git/worktrees/wt-second/gitdir");
     write_file(&gitdir, "/Volumes/diskdiet-test-unplugged/wt-second/.git\n")?;
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 
@@ -66,7 +66,7 @@ fn a_repo_whose_worktree_was_removed_cleanly_yields_nothing() -> Result<()> {
     let (_tmp, root) = temp_root()?;
     let (repo, worktree) = repo_with_worktree(&root, "done")?;
     git(&repo, &["worktree", "remove", &worktree.to_string_lossy()])?;
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 

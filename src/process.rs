@@ -19,7 +19,7 @@ struct PipeReader {
 }
 
 pub fn drain_pipe(mut source: impl Read, mut on_chunk: impl FnMut(&[u8])) -> bool {
-    let mut chunk = [0u8; READ_CHUNK_BYTES];
+    let mut chunk = vec![0u8; READ_CHUNK_BYTES];
     loop {
         match source.read(&mut chunk) {
             Ok(0) => return true,
@@ -56,7 +56,7 @@ impl PipeReader {
     }
 }
 
-pub fn announce_exit(mut wait: impl FnMut() -> Result<(), Errno>, exited: mpsc::Sender<()>) {
+pub fn announce_exit(mut wait: impl FnMut() -> Result<(), Errno>, exited: &mpsc::Sender<()>) {
     loop {
         match wait() {
             Err(Errno::INTR) => {}
@@ -69,7 +69,7 @@ pub fn announce_exit(mut wait: impl FnMut() -> Result<(), Errno>, exited: mpsc::
     }
 }
 
-fn announce_exit_without_reaping(pid: Pid, exited: mpsc::Sender<()>) {
+fn announce_exit_without_reaping(pid: Pid, exited: &mpsc::Sender<()>) {
     let options = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT;
     announce_exit(|| waitid(WaitId::Pid(pid), options).map(drop), exited);
 }
@@ -77,7 +77,7 @@ fn announce_exit_without_reaping(pid: Pid, exited: mpsc::Sender<()>) {
 fn wait_or_kill(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
     let (exited, exit_announced) = mpsc::channel();
     let pid = Pid::from_child(child);
-    std::thread::spawn(move || announce_exit_without_reaping(pid, exited));
+    std::thread::spawn(move || announce_exit_without_reaping(pid, &exited));
     if exit_announced.recv_timeout(timeout).is_ok() {
         return child.wait().ok();
     }

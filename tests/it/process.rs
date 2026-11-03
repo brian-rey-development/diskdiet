@@ -47,14 +47,15 @@ fn a_failed_read_is_reported_as_incomplete() {
 fn the_exit_watcher_announces_only_after_a_successful_wait() {
     let (sender, receiver) = mpsc::channel();
     let mut attempts = vec![Err(Errno::INTR), Ok(())].into_iter();
-    announce_exit(|| attempts.next().unwrap_or(Err(Errno::CHILD)), sender);
+    announce_exit(|| attempts.next().unwrap_or(Err(Errno::CHILD)), &sender);
     assert!(receiver.try_recv().is_ok());
 }
 
 #[test]
 fn the_exit_watcher_stays_silent_when_waiting_fails() {
     let (sender, receiver) = mpsc::channel();
-    announce_exit(|| Err(Errno::CHILD), sender);
+    announce_exit(|| Err(Errno::CHILD), &sender);
+    drop(sender);
     assert_eq!(receiver.try_recv(), Err(mpsc::TryRecvError::Disconnected));
 }
 

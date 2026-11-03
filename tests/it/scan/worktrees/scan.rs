@@ -65,7 +65,7 @@ fn main_and_detached_worktrees_are_not_offered() -> Result<()> {
         &repo,
         &["worktree", "add", "--detach", &detached.to_string_lossy()],
     )?;
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 
@@ -73,7 +73,7 @@ fn main_and_detached_worktrees_are_not_offered() -> Result<()> {
 fn repos_without_linked_worktrees_yield_nothing() -> Result<()> {
     let (_tmp, root) = temp_root()?;
     init_repo(&root.join("plain"))?;
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 

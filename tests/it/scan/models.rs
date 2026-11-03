@@ -41,9 +41,18 @@ fn ollama_tags_of_the_same_model_are_one_item() {
 
 #[test]
 fn ollama_list_tolerates_empty_and_broken_output() {
-    assert!(parse_ollama_list("").is_empty());
-    assert!(parse_ollama_list("NAME ID SIZE MODIFIED\n").is_empty());
-    assert!(parse_ollama_list("Error: could not connect to ollama app\n").is_empty());
+    assert_eq!(
+        parse_ollama_list(""),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
+    assert_eq!(
+        parse_ollama_list("NAME ID SIZE MODIFIED\n"),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
+    assert_eq!(
+        parse_ollama_list("Error: could not connect to ollama app\n"),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
 }
 
 #[test]
@@ -71,7 +80,16 @@ fn ollama_models_keep_their_tags_in_listing_order() {
 
 #[test]
 fn ollama_rows_with_missing_or_unknown_size_are_skipped() {
-    assert!(parse_ollama_list("a:1 1111 1.0\n").is_empty());
-    assert!(parse_ollama_list("a:1 1111 big GB 1 day ago\n").is_empty());
-    assert!(parse_ollama_list("a:1 1111 1.0 XB 1 day ago\n").is_empty());
+    assert_eq!(
+        parse_ollama_list("a:1 1111 1.0\n"),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
+    assert_eq!(
+        parse_ollama_list("a:1 1111 big GB 1 day ago\n"),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
+    assert_eq!(
+        parse_ollama_list("a:1 1111 1.0 XB 1 day ago\n"),
+        [] as [diskdiet::scan::models::OllamaModel; 0]
+    );
 }

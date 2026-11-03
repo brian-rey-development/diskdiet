@@ -55,7 +55,7 @@ pub fn owner_check_in(item: &Item, processes: Option<&str>) -> OwnerCheck {
     OwnerCheck::Idle
 }
 
-pub(crate) fn owner_check(item: &Item) -> OwnerCheck {
+pub fn owner_check(item: &Item) -> OwnerCheck {
     match owned_path(item) {
         Some(_) => owner_check_in(item, process_listing().as_deref()),
         None => OwnerCheck::Idle,

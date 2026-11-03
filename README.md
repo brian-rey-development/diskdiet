@@ -8,8 +8,6 @@ diskdiet is an interactive, developer-aware disk cleaner for macOS and Linux. It
 
 ![diskdiet demo](docs/demo.gif)
 
-<!-- Re-record with `vhs scripts/demo.tape`. It runs inside a fake home folder built by scripts/demo-sandbox.sh, so no real project names show. -->
-
 ## Why this exists
 
 One real Mac went from 642 GB used to 319 GB used. 105 GB of that were Rust `target/` folders, and 60 GB of those sat inside ten agent worktrees of a single repo. Each agent had checked out its own copy, built it, and left. Nothing in the usual cleaning tools knew those folders existed, because to them a worktree is just another directory.
@@ -102,7 +100,7 @@ It runs everything except the deleting. Scanning, sizing, risk checks, prompts a
 Yes. Right before deleting and again after, diskdiet reads the free space of your volume and reports the difference, so the number on the screen is what your disk now has, not an estimate. Apps and downloads go to the Trash, which frees nothing until it is emptied, and the final screen says so instead of celebrating 0 bytes. The "up to" numbers shown before that are estimates. They use real disk allocation (not file length), count hardlinks once and never follow symlinks, but APFS clones (which pnpm uses for `node_modules` on macOS) share blocks invisibly, so deleting a cloned folder can free less than its size.
 
 **Is it fast?**
-It scans every category in parallel. On the Mac from the story, a full scan (72 GB of projects, 33 worktrees, every cache) takes about 9 seconds, while `du -sk ~/Develop` alone takes 42. On macOS it reads each folder with one `getattrlistbulk` call, the system call Finder uses, which returns the size of every entry in a batch instead of one `stat` per file. On Linux it walks with `readdir` and `lstat` in parallel.
+It scans every category in parallel and starts in a few milliseconds. On the Mac from the story, a full scan (72 GB of projects, 33 worktrees, every cache) takes under 8 seconds, while `du -sk ~/Develop` alone takes 42. It also avoids work it does not need, so repositories without linked worktrees never start git, Spotlight is asked about every app in one call, and the thread pool stays at eight threads because the disk, not the CPU, sets the pace. On macOS it reads each folder with one `getattrlistbulk` call, the system call Finder uses, which returns the size of every entry in a batch instead of one `stat` per file. On Linux it walks with `readdir` and `lstat` in parallel.
 
 ## Contributing
 

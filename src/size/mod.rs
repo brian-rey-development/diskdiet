@@ -43,7 +43,7 @@ impl Tally {
         }
     }
 
-    fn merge(mut self, other: Tally) -> Tally {
+    fn merge(mut self, other: Self) -> Self {
         self.bytes += other.bytes;
         self.shared.extend(other.shared);
         self
@@ -130,6 +130,7 @@ pub fn disk_usage(paths: &[PathBuf]) -> u64 {
         .total()
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn scale(bytes: u64) -> (f64, usize) {
     let mut value = bytes as f64;
     let mut unit = 0;

@@ -17,19 +17,23 @@ Always develop with `--dry-run`. `scripts/dev.sh` does that for you, and passes 
 
 To see where scan time goes, run `cargo run --release --example profile`. It runs each scanner on its own and prints how long it took and how many items it found, which is how the worktree scanner was found to spend about a second per large worktree in `git status --ignored=traditional` (the `matching` mode it uses now takes 0.06 seconds).
 
+## Recording the demo
+
+The GIF in the README is recorded with [vhs](https://github.com/charmbracelet/vhs). Build a release binary, then run `vhs scripts/demo.tape` from the repo root. The tape runs inside a fake home folder built by `scripts/demo-sandbox.sh`, so no real project names or paths show up in the recording.
+
 ## Before you open a pull request
 
 ```sh
 ./scripts/check.sh
 ```
 
-It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. All three must pass, and CI runs them on both macOS and Ubuntu. To lint the other platform from your machine, add its target with `rustup target add` and run `cargo clippy --target <triple> --all-targets`.
+It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. All three must pass, and CI runs them on both macOS and Ubuntu. Clippy runs with the `all` and `pedantic` groups denied in `Cargo.toml`, plus a few nursery lints, so a warning anywhere fails the build. The only pedantic lints allowed crate-wide are `must_use_candidate` and `missing_errors_doc`, and the few local `#[allow]` attributes sit on the smallest item that needs them, such as the one function that converts a float to a byte count after checking its range. To lint the other platform from your machine, add its target with `rustup target add` and run `cargo clippy --target <triple> --all-targets`.
 
 ## Code standards
 
 - Rust 2024, no `unwrap()` outside tests, `unsafe` denied by the lint config everywhere except `src/size/bulk.rs` (the one `getattrlistbulk` call, which parses its buffer through bounds-checked slices), `anyhow` for errors at the edges.
 - Functions of 20 lines or fewer (clippy `too_many_lines` enforces it), named constants instead of magic numbers and strings, early returns, immutability by default.
-- No comments unless the why is non-obvious (a hidden constraint, a subtle invariant, a workaround). Help text for `--help` goes through `#[arg(help = "...")]` in `cli.rs`, not doc comments.
+- No comments. Names carry the intent, and a reason that would need a comment becomes a well-named function or constant instead. The single exception is the `// SAFETY:` note on the one `unsafe` block, which is the Rust convention for stating why it is sound. Help text for `--help` goes through `#[arg(help = "...")]` in `cli.rs`, not doc comments.
 - Scanners never panic. On any error they skip the item.
 - Commits follow Conventional Commits, in English.
 
