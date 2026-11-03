@@ -3,10 +3,15 @@ use super::assess::{Assessment, assess_worktree};
 use crate::fmt::{format_age, plural_s, tilde_path};
 use crate::git::porcelain::WorktreeEntry;
 use crate::model::{Action, Category, Item, Removal, Risk};
+use crate::scan::support::{DETAIL_SEPARATOR, file_label};
 use crate::size::{disk_usage, format_bytes};
 use std::path::Path;
 
-const DETAIL_SEPARATOR: &str = " · ";
+#[derive(Clone, Copy)]
+struct Worktree<'a> {
+    repo: &'a Path,
+    path: &'a Path,
+}
 
 fn ahead_text(ahead: Option<u32>) -> String {
     match ahead {
@@ -44,19 +49,39 @@ fn describe(assessment: &Assessment, bytes: u64, path: &Path, home: &Path) -> St
     parts.join(DETAIL_SEPARATOR)
 }
 
-fn item_with_risk(label: &str, detail: String, bytes: u64, risk: Risk, action: Action) -> Item {
+fn removal_item(
+    label: &str,
+    detail: String,
+    bytes: u64,
+    risk: Risk,
+    worktree: Worktree<'_>,
+) -> Item {
+    let removal = match risk {
+        Risk::Danger => Removal::Forced,
+        _ => Removal::Rechecked,
+    };
+    let action = Action::RemoveWorktree {
+        repo: worktree.repo.to_path_buf(),
+        worktree: worktree.path.to_path_buf(),
+        removal,
+    };
     let item = Item::new(Category::AgentWorktrees, label, detail, bytes, risk, action);
-    match risk {
-        Risk::Danger => item.with_typed_delete(),
-        _ => item,
+    match removal {
+        Removal::Forced => item.with_typed_delete(),
+        Removal::Rechecked => item,
     }
 }
 
-fn removal_for(risk: Risk) -> Removal {
-    match risk {
-        Risk::Danger => Removal::Forced,
-        _ => Removal::Rechecked,
-    }
+fn assess_and_measure(
+    entry: &WorktreeEntry,
+    base: Option<&str>,
+    env: &RepoScanEnv,
+) -> Option<(Assessment, u64)> {
+    let (assessment, bytes) = rayon::join(
+        || assess_worktree(&env.git, &entry.path, base),
+        || disk_usage(std::slice::from_ref(&entry.path)),
+    );
+    Some((assessment?, bytes))
 }
 
 pub(super) fn worktree_item(
@@ -69,19 +94,19 @@ pub(super) fn worktree_item(
         .branch
         .as_deref()
         .filter(|_| !entry.detached && !entry.bare)?;
-    let (assessment, bytes) = rayon::join(
-        || assess_worktree(&env.git, &entry.path, base),
-        || disk_usage(std::slice::from_ref(&entry.path)),
-    );
-    let assessment = assessment?;
-    let risk = assessment.risk();
-    let action = Action::RemoveWorktree {
-        repo: repo.to_path_buf(),
-        worktree: entry.path.clone(),
-        removal: removal_for(risk),
-    };
+    let (assessment, bytes) = assess_and_measure(entry, base, env)?;
     let detail = describe(&assessment, bytes, &entry.path, &env.home);
-    Some(item_with_risk(branch, detail, bytes, risk, action))
+    let worktree = Worktree {
+        repo,
+        path: &entry.path,
+    };
+    Some(removal_item(
+        branch,
+        detail,
+        bytes,
+        assessment.risk(),
+        worktree,
+    ))
 }
 
 fn prune_detail(missing: usize, repo: &Path, home: &Path) -> String {
@@ -100,9 +125,7 @@ pub(super) fn prune_item(repo: &Path, missing: usize, home: &Path) -> Option<Ite
     if missing == 0 {
         return None;
     }
-    let name = repo
-        .file_name()
-        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let name = file_label(repo).unwrap_or_default();
     Some(Item::new(
         Category::AgentWorktrees,
         format!("Stale worktree records in {name}"),

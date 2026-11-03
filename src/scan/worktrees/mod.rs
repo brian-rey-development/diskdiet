@@ -14,7 +14,7 @@ use items::{prune_item, worktree_item};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
-pub(crate) struct RepoScanEnv {
+struct RepoScanEnv {
     git: PathBuf,
     home: PathBuf,
 }

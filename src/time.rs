@@ -25,6 +25,15 @@ const DAYS_PER_FIVE_MONTHS: i64 = 153;
 const MONTHS_PER_SPAN: i64 = 5;
 const SPAN_ROUNDING: i64 = 2;
 
+const DATE_SEPARATOR: char = '-';
+const CLOCK_SEPARATOR: char = ':';
+const MAX_MONTH: i64 = 12;
+const MAX_DAY: i64 = 31;
+const MAX_HOUR: i64 = 23;
+const MAX_MINUTE_OR_SECOND: i64 = 59;
+const OFFSET_HOUR_DIGITS: usize = 2;
+const OFFSET_DIGITS: usize = 4;
+
 pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -92,4 +101,44 @@ pub fn format_timestamp(unix_secs: u64) -> String {
     let minute = secs_of_day % SECS_PER_HOUR / SECS_PER_MINUTE;
     let second = secs_of_day % SECS_PER_MINUTE;
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
+}
+
+fn parse_triple(text: &str, separator: char) -> Option<[i64; 3]> {
+    let mut fields = text.split(separator).map(|field| field.parse::<i64>().ok());
+    Some([fields.next()??, fields.next()??, fields.next()??])
+}
+
+fn parse_date(text: &str) -> Option<[i64; 3]> {
+    let date @ [_, month, day] = parse_triple(text, DATE_SEPARATOR)?;
+    let valid = (1..=MAX_MONTH).contains(&month) && (1..=MAX_DAY).contains(&day);
+    valid.then_some(date)
+}
+
+fn parse_clock(text: &str) -> Option<i64> {
+    let [hour, minute, second] = parse_triple(text, CLOCK_SEPARATOR)?;
+    let valid = (0..=MAX_HOUR).contains(&hour)
+        && (0..=MAX_MINUTE_OR_SECOND).contains(&minute)
+        && (0..=MAX_MINUTE_OR_SECOND).contains(&second);
+    valid.then_some(hour * signed::SECS_PER_HOUR + minute * signed::SECS_PER_MINUTE + second)
+}
+
+fn parse_offset(text: &str) -> Option<i64> {
+    let (sign, digits) = match text.strip_prefix('+') {
+        Some(digits) => (1, digits),
+        None => (-1, text.strip_prefix('-')?),
+    };
+    let hours = digits.get(..OFFSET_HOUR_DIGITS)?.parse::<i64>().ok()?;
+    let minutes = digits
+        .get(OFFSET_HOUR_DIGITS..OFFSET_DIGITS)?
+        .parse::<i64>()
+        .ok()?;
+    Some(sign * (hours * signed::SECS_PER_HOUR + minutes * signed::SECS_PER_MINUTE))
+}
+
+pub fn parse_timestamp(text: &str) -> Option<i64> {
+    let mut parts = text.split_whitespace();
+    let [year, month, day] = parse_date(parts.next()?)?;
+    let clock = parse_clock(parts.next()?)?;
+    let offset = parts.next().map_or(Some(0), parse_offset)?;
+    Some(unix_days_from_date(year, month, day) * signed::SECS_PER_DAY + clock - offset)
 }

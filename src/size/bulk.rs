@@ -15,7 +15,7 @@ const VOLUME_AND_DIR_SETS: usize = 2 * U32_BYTES;
 const REQUIRED_COMMON: u32 =
     libc::ATTR_CMN_NAME | libc::ATTR_CMN_DEVID | libc::ATTR_CMN_OBJTYPE | libc::ATTR_CMN_FILEID;
 const REQUESTED_COMMON: u32 = libc::ATTR_CMN_RETURNED_ATTRS | REQUIRED_COMMON;
-const REQUESTED_FILE: u32 = libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_ALLOCSIZE;
+const REQUIRED_FILE: u32 = libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_ALLOCSIZE;
 
 thread_local! {
     static BUFFER: RefCell<Vec<u8>> = RefCell::new(vec![0; BUFFER_BYTES]);
@@ -33,7 +33,7 @@ fn request() -> libc::attrlist {
         commonattr: REQUESTED_COMMON,
         volattr: 0,
         dirattr: 0,
-        fileattr: REQUESTED_FILE,
+        fileattr: REQUIRED_FILE,
         forkattr: 0,
     }
 }
@@ -53,7 +53,7 @@ fn fill(dir: &OwnedFd, buffer: &mut [u8]) -> io::Result<usize> {
     usize::try_from(count).map_err(|_| io::Error::last_os_error())
 }
 
-pub fn list(dir: &Path) -> io::Result<Vec<Node>> {
+pub(super) fn list(dir: &Path) -> io::Result<Vec<Node>> {
     let handle = open_dir(dir)?;
     let mut nodes = Vec::new();
     BUFFER.with_borrow_mut(|buffer| {
@@ -149,14 +149,11 @@ fn parse_entry(entry: &[u8], dir: &Path) -> Option<Node> {
 }
 
 fn parse_file(cursor: &mut Cursor, file: u32, device: i32, inode: u64) -> Option<Node> {
-    let links = match file & libc::ATTR_FILE_LINKCOUNT {
-        0 => 1,
-        _ => cursor.u32()?,
-    };
-    let allocated = match file & libc::ATTR_FILE_ALLOCSIZE {
-        0 => 0,
-        _ => cursor.i64()?,
-    };
+    if file & REQUIRED_FILE != REQUIRED_FILE {
+        return None;
+    }
+    let links = cursor.u32()?;
+    let allocated = cursor.i64()?;
     Some(Node::File {
         bytes: u64::try_from(allocated).unwrap_or(0),
         shared: (links > 1).then_some((device as u64, inode)),

@@ -1,4 +1,5 @@
 use crate::fsutil::{canonical_or_self, child_dirs};
+use crate::scan::support::GIT_DIR;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,6 @@ const WALK_SKIPPED_DIRS: &[&str] = &[
     "__pycache__",
     ".worktrees",
 ];
-const GIT_DIR: &str = ".git";
 const LINKED_RECORDS_DIR: &str = "worktrees";
 const CLAUDE_WORKTREES: &str = ".claude/worktrees";
 const REPO_SCAN_MAX_DEPTH: usize = 8;

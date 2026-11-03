@@ -1,55 +1,16 @@
 use crate::support::{SECS_PER_DAY, STALE_DAYS};
 use anyhow::Result;
 use diskdiet::scan::apps::{
-    Spotlight, app_data_paths, latest_activity, parse_mdls_batch, parse_mdls_date, stale_reason,
-    terminal_app_name,
+    Spotlight, app_data_paths, latest_activity, parse_mdls_batch, stale_reason, terminal_app_name,
 };
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 
-const MDLS_SAMPLE_EPOCH: i64 = 1_778_980_370;
 const SAFARI_AND_CALCULATOR: &str =
     "com.apple.Safari\u{0}2026-09-14 13:45:27 +0000\0com.apple.calculator\0(null)";
+const MDLS_SAMPLE_EPOCH: i64 = 1_778_980_370;
 const SAFARI_EPOCH: i64 = 1_789_393_527;
-
-#[test]
-fn mdls_dates_parse_to_unix_seconds() {
-    assert_eq!(
-        parse_mdls_date("2026-05-17 01:12:50 +0000"),
-        Some(MDLS_SAMPLE_EPOCH)
-    );
-    assert_eq!(parse_mdls_date("1970-01-01 00:00:00 +0000"), Some(0));
-}
-
-#[test]
-fn mdls_dates_apply_the_timezone_offset() {
-    assert_eq!(
-        parse_mdls_date("2026-05-17 03:12:50 +0200"),
-        Some(MDLS_SAMPLE_EPOCH)
-    );
-    assert_eq!(
-        parse_mdls_date("2026-05-16 20:12:50 -0500"),
-        Some(MDLS_SAMPLE_EPOCH)
-    );
-}
-
-#[test]
-fn mdls_null_and_garbage_are_none() {
-    assert_eq!(parse_mdls_date("(null)"), None);
-    assert_eq!(parse_mdls_date(""), None);
-    assert_eq!(parse_mdls_date("2026-13-40 99:99:99 +0000"), None);
-}
-
-#[test]
-fn mdls_dates_ignore_trailing_fields_and_reject_short_ones() {
-    assert_eq!(
-        parse_mdls_date("2026-09-14-99 13:45:27:00 +0000"),
-        Some(SAFARI_EPOCH)
-    );
-    assert_eq!(parse_mdls_date("2026-09 13:45:27 +0000"), None);
-    assert_eq!(parse_mdls_date("2026-09-14 13:45 +0000"), None);
-}
 
 #[test]
 fn stale_reason_flags_old_and_never_opened_apps() -> Result<()> {
@@ -71,11 +32,8 @@ fn stale_reason_flags_old_and_never_opened_apps() -> Result<()> {
 
 #[test]
 fn terminal_programs_map_to_app_bundles() {
-    assert_eq!(
-        terminal_app_name("Apple_Terminal").as_deref(),
-        Some("Terminal.app")
-    );
-    assert_eq!(terminal_app_name("iTerm.app").as_deref(), Some("iTerm.app"));
+    assert_eq!(terminal_app_name("Apple_Terminal"), Some("Terminal.app"));
+    assert_eq!(terminal_app_name("iTerm.app"), Some("iTerm.app"));
     assert_eq!(terminal_app_name("unknown"), None);
 }
 
