@@ -2,7 +2,7 @@
 name = "diskdiet"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Your AI agents made your disk fat. Put it on a diet. An interactive, developer-aware disk cleaner for macOS and Linux."
 license = "MIT"
 readme = "README.md"
