@@ -9,41 +9,105 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const PYVENV_CONFIG: &str = "pyvenv.cfg";
-const MAX_WALK_DEPTH: usize = 12;
+const BUILD_SCAN_MAX_DEPTH: usize = 12;
 const GIT_DIR: &str = ".git";
 const NODE_MODULES: &str = "node_modules";
 const PACKAGE_JSON: &str = "package.json";
 const LINKED_WORKTREE_MARKER: &str = "/worktrees/";
-const VENV_HINT: &str = "run `uv sync` to recreate";
+const UNKNOWN_AGE: &str = "unknown";
 
-type Found = BTreeMap<PathBuf, (Category, Risk)>;
+enum Evidence {
+    SiblingManifest(&'static [&'static str]),
+    ContainedFile(&'static str),
+}
+
+struct BuildKind {
+    dir_name: &'static str,
+    evidence: Evidence,
+    category: Category,
+    risk: Risk,
+    label: &'static str,
+    hint: Option<&'static str>,
+    offered_only_when_stale: bool,
+}
+
+const BUILD_KINDS: &[BuildKind] = &[
+    BuildKind {
+        dir_name: "target",
+        evidence: Evidence::SiblingManifest(&["Cargo.toml"]),
+        category: Category::BuildArtifacts,
+        risk: Risk::Safe,
+        label: "Rust target",
+        hint: None,
+        offered_only_when_stale: false,
+    },
+    BuildKind {
+        dir_name: ".next",
+        evidence: Evidence::SiblingManifest(&[PACKAGE_JSON]),
+        category: Category::BuildArtifacts,
+        risk: Risk::Safe,
+        label: "Next.js build",
+        hint: None,
+        offered_only_when_stale: false,
+    },
+    BuildKind {
+        dir_name: ".turbo",
+        evidence: Evidence::SiblingManifest(&[PACKAGE_JSON, "turbo.json"]),
+        category: Category::BuildArtifacts,
+        risk: Risk::Safe,
+        label: "Turborepo cache",
+        hint: None,
+        offered_only_when_stale: false,
+    },
+    BuildKind {
+        dir_name: NODE_MODULES,
+        evidence: Evidence::SiblingManifest(&[PACKAGE_JSON]),
+        category: Category::BuildArtifacts,
+        risk: Risk::Review,
+        label: "stale node_modules",
+        hint: None,
+        offered_only_when_stale: true,
+    },
+    BuildKind {
+        dir_name: ".venv",
+        evidence: Evidence::ContainedFile("pyvenv.cfg"),
+        category: Category::PythonEnvs,
+        risk: Risk::Review,
+        label: "Python virtualenv",
+        hint: Some("run `uv sync` to recreate"),
+        offered_only_when_stale: false,
+    },
+];
+
+type Found = BTreeMap<PathBuf, &'static BuildKind>;
+
+impl Evidence {
+    fn holds_for(&self, dir: &Path) -> bool {
+        match self {
+            Evidence::SiblingManifest(names) => dir
+                .parent()
+                .is_some_and(|parent| names.iter().any(|name| parent.join(name).is_file())),
+            Evidence::ContainedFile(name) => dir.join(name).is_file(),
+        }
+    }
+}
 
 fn is_real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
 }
 
-fn has_any_file(dir: &Path, names: &[&str]) -> bool {
-    names.iter().any(|name| dir.join(name).is_file())
-}
-
-pub fn classify(dir: &Path) -> Option<(Category, Risk)> {
+fn matching_kind(dir: &Path) -> Option<&'static BuildKind> {
     if !is_real_dir(dir) {
         return None;
     }
     let name = dir.file_name()?.to_str()?;
-    let parent = dir.parent()?;
-    let build = |manifests: &[&str], risk: Risk| {
-        has_any_file(parent, manifests).then_some((Category::BuildArtifacts, risk))
-    };
-    match name {
-        "target" => build(&["Cargo.toml"], Risk::Safe),
-        ".next" => build(&[PACKAGE_JSON], Risk::Safe),
-        ".turbo" => build(&[PACKAGE_JSON, "turbo.json"], Risk::Safe),
-        NODE_MODULES => build(&[PACKAGE_JSON], Risk::Review),
-        ".venv" if dir.join(PYVENV_CONFIG).is_file() => Some((Category::PythonEnvs, Risk::Review)),
-        _ => None,
-    }
+    BUILD_KINDS
+        .iter()
+        .find(|kind| kind.dir_name == name && kind.evidence.holds_for(dir))
+}
+
+pub fn classify(dir: &Path) -> Option<(Category, Risk)> {
+    matching_kind(dir).map(|kind| (kind.category, kind.risk))
 }
 
 fn is_linked_worktree(dir: &Path) -> bool {
@@ -68,7 +132,7 @@ fn is_excluded(dir: &Path, ctx: &ScanContext) -> bool {
 }
 
 fn walk(dir: &Path, depth: usize, ctx: &ScanContext, found: &mut Found) {
-    if depth > MAX_WALK_DEPTH || is_excluded(dir, ctx) || is_linked_worktree(dir) {
+    if depth > BUILD_SCAN_MAX_DEPTH || is_excluded(dir, ctx) || is_linked_worktree(dir) {
         return;
     }
     for child in child_dirs(dir) {
@@ -81,9 +145,9 @@ fn visit(child: &Path, depth: usize, ctx: &ScanContext, found: &mut Found) {
     if name == Some(GIT_DIR) {
         return;
     }
-    if let Some(matched) = classify(child) {
-        if should_offer(child, name, ctx) {
-            found.insert(child.to_path_buf(), matched);
+    if let Some(kind) = matching_kind(child) {
+        if should_offer(child, kind, ctx) {
+            found.insert(child.to_path_buf(), kind);
         }
         return;
     }
@@ -92,50 +156,40 @@ fn visit(child: &Path, depth: usize, ctx: &ScanContext, found: &mut Found) {
     }
 }
 
-fn should_offer(path: &Path, name: Option<&str>, ctx: &ScanContext) -> bool {
+fn should_offer(path: &Path, kind: &BuildKind, ctx: &ScanContext) -> bool {
     if is_excluded(path, ctx) {
         return false;
     }
     let stale_days = ctx.config.stale_node_modules_days;
-    name != Some(NODE_MODULES) || node_modules_is_stale(path, stale_days)
+    !kind.offered_only_when_stale || node_modules_is_stale(path, stale_days)
 }
 
-fn kind_label(path: &Path) -> &'static str {
-    match path.file_name().and_then(|name| name.to_str()) {
-        Some("target") => "Rust target",
-        Some(".next") => "Next.js build",
-        Some(".turbo") => "Turborepo cache",
-        Some(NODE_MODULES) => "stale node_modules",
-        _ => "Python virtualenv",
-    }
-}
-
-fn describe(path: &Path, category: Category, bytes: u64) -> String {
+fn describe(path: &Path, kind: &BuildKind, bytes: u64) -> String {
     let modified = fs::metadata(path)
         .and_then(|meta| meta.modified())
         .map_or_else(
-            |_| "unknown".to_string(),
+            |_| UNKNOWN_AGE.to_owned(),
             |time| format_age(secs_since(time)),
         );
     let base = format!(
         "{} · {} · last modified {modified}",
-        kind_label(path),
+        kind.label,
         format_bytes(bytes)
     );
-    match category {
-        Category::PythonEnvs => format!("{base} · {VENV_HINT}"),
-        _ => base,
+    match kind.hint {
+        Some(hint) => format!("{base} · {hint}"),
+        None => base,
     }
 }
 
-fn build_item(path: &Path, category: Category, risk: Risk, home: &Path) -> Item {
+fn build_item(path: &Path, kind: &BuildKind, home: &Path) -> Item {
     let bytes = disk_usage(&[path.to_path_buf()]);
     Item::new(
-        category,
+        kind.category,
         tilde_path(path, home),
-        describe(path, category, bytes),
+        describe(path, kind, bytes),
         bytes,
-        risk,
+        kind.risk,
         Action::DeletePath(path.to_path_buf()),
     )
 }
@@ -147,6 +201,6 @@ pub fn scan(ctx: &ScanContext) -> Vec<Item> {
     }
     found
         .par_iter()
-        .map(|(path, (category, risk))| build_item(path, *category, *risk, &ctx.home))
+        .map(|(path, kind)| build_item(path, kind, &ctx.home))
         .collect()
 }

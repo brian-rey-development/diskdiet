@@ -6,14 +6,16 @@ use diskdiet::git::ignored::is_build_output;
 use diskdiet::git::porcelain::parse_porcelain;
 use diskdiet::git::status::count_status;
 use diskdiet::model::{Action, Category, Item, Removal, Risk};
-use diskdiet::scan::worktrees::{Assessment, assess, base_branch, find_repos, inspect, scan};
+use diskdiet::scan::worktrees::{
+    Assessment, assess_worktree, base_branch, find_repos, risk_from_counts, scan,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const GIT: &str = "git";
 
 fn inspect_worktree(wt: &Path) -> Result<Assessment> {
-    inspect(Path::new(GIT), wt, Some("main")).ok_or_else(|| anyhow!("inspect failed"))
+    assess_worktree(Path::new(GIT), wt, Some("main")).ok_or_else(|| anyhow!("inspect failed"))
 }
 
 fn repo_with_worktree(root: &Path, branch: &str) -> Result<(PathBuf, PathBuf)> {
@@ -225,11 +227,11 @@ fn porcelain_parser_ignores_empty_input_and_quoted_paths() {
 
 #[test]
 fn assess_combines_ahead_dirty_and_ignored_counts() {
-    assert_eq!(assess(0, 0, 0), Risk::Safe);
-    assert_eq!(assess(3, 0, 0), Risk::Review);
-    assert_eq!(assess(0, 1, 0), Risk::Danger);
-    assert_eq!(assess(0, 0, 1), Risk::Danger);
-    assert_eq!(assess(5, 2, 1), Risk::Danger);
+    assert_eq!(risk_from_counts(0, 0, 0), Risk::Safe);
+    assert_eq!(risk_from_counts(3, 0, 0), Risk::Review);
+    assert_eq!(risk_from_counts(0, 1, 0), Risk::Danger);
+    assert_eq!(risk_from_counts(0, 0, 1), Risk::Danger);
+    assert_eq!(risk_from_counts(5, 2, 1), Risk::Danger);
 }
 
 #[test]
@@ -313,8 +315,7 @@ fn worktrees_with_submodules_are_danger_because_git_needs_force() -> Result<()> 
     let (_tmp, root) = temp_root()?;
     let (_repo, wt) = repo_with_worktree(&root, "feature")?;
     add_real_submodule(&root, &wt)?;
-    let assessment =
-        inspect(Path::new(GIT), &wt, Some("main")).ok_or_else(|| anyhow!("inspect"))?;
+    let assessment = inspect_worktree(&wt)?;
     assert!(assessment.has_submodules);
     assert_eq!(assessment.risk(), Risk::Danger);
     let item = item_for(&scan_items(&root, vec![root.join("repo")]), "feature")?.clone();
