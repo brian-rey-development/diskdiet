@@ -1,5 +1,7 @@
 use crate::fsutil::remove_any;
+use crate::time;
 use std::ffi::{OsStr, OsString};
+use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::ffi::OsStrExt;
@@ -8,7 +10,9 @@ use std::path::{Path, PathBuf};
 const FILES_DIR: &str = "files";
 const INFO_DIR: &str = "info";
 const INFO_SUFFIX: &str = ".trashinfo";
-const EMPTIED_DIRS: [&str; 3] = ["files", "info", "expunged"];
+const EXPUNGED_DIR: &str = "expunged";
+const EMPTIED_DIRS: [&str; 3] = [FILES_DIR, INFO_DIR, EXPUNGED_DIR];
+const UNENCODED_PUNCTUATION: &[u8] = b"-_.~/";
 const SIZES_CACHE: &str = "directorysizes";
 const MAX_NAME_ATTEMPTS: u32 = 10_000;
 
@@ -17,13 +21,17 @@ pub fn encode_path(path: &Path) -> String {
         .as_bytes()
         .iter()
         .fold(String::new(), |mut out, &byte| {
-            if byte.is_ascii_alphanumeric() || b"-_.~/".contains(&byte) {
+            if byte.is_ascii_alphanumeric() || UNENCODED_PUNCTUATION.contains(&byte) {
                 out.push(char::from(byte));
             } else {
-                out.push_str(&format!("%{byte:02X}"));
+                let _ = write!(out, "%{byte:02X}");
             }
             out
         })
+}
+
+pub fn deletion_date_now() -> String {
+    time::format_timestamp(time::now_secs()).replace(' ', "T")
 }
 
 pub fn info_text(path: &Path, deleted_at: &str) -> String {
@@ -85,11 +93,17 @@ pub fn move_to(trash: &Path, path: &Path, deleted_at: &str) -> io::Result<()> {
     })
 }
 
+fn ignore_not_found<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn clear_dir(dir: &Path) -> io::Result<()> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
+    let Some(entries) = ignore_not_found(fs::read_dir(dir))? else {
+        return Ok(());
     };
     for entry in entries {
         remove_any(&entry?.path())?;
@@ -101,8 +115,5 @@ pub fn empty(trash: &Path) -> io::Result<()> {
     for dir in EMPTIED_DIRS {
         clear_dir(&trash.join(dir))?;
     }
-    match fs::remove_file(trash.join(SIZES_CACHE)) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    }
+    ignore_not_found(fs::remove_file(trash.join(SIZES_CACHE))).map(drop)
 }
