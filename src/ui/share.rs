@@ -8,7 +8,7 @@ const CARD_PADDING: usize = 2;
 const CARD_TITLE: &str = "diskdiet";
 const CARD_TAGLINE: &str = "Put your disk on a diet.";
 
-pub fn tweet_text(freed_label: &str) -> String {
+pub(crate) fn tweet_text(freed_label: &str) -> String {
     format!(
         "I just freed {freed_label} on my {MACHINE} with diskdiet. My AI agents had been hoarding build artifacts.\n\n{REPO_URL}"
     )
@@ -53,7 +53,7 @@ fn boxed_line(line: &str, inner: usize) -> String {
     format!("│{}{line}{}│", " ".repeat(CARD_PADDING), " ".repeat(pad))
 }
 
-pub fn card_lines(freed: &str, before_free: &str, after_free: &str) -> Vec<String> {
+pub(crate) fn card_lines(freed: &str, before_free: &str, after_free: &str) -> Vec<String> {
     vec![
         style(CARD_TITLE).bold().to_string(),
         style(CARD_TAGLINE).dim().to_string(),
@@ -65,7 +65,7 @@ pub fn card_lines(freed: &str, before_free: &str, after_free: &str) -> Vec<Strin
     ]
 }
 
-pub fn card(freed: u64, before_free: u64, after_free: u64) -> String {
+pub(crate) fn card(freed: u64, before_free: u64, after_free: u64) -> String {
     boxed(&card_lines(
         &format_bytes(freed),
         &format_bytes(before_free),

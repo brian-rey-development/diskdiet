@@ -1,5 +1,5 @@
 use crate::cli::Args;
-use crate::model::{Item, Risk};
+use crate::model::Item;
 use crate::size::format_bytes;
 use serde_json::json;
 use std::io::{self, Write};
@@ -7,15 +7,7 @@ use std::io::{self, Write};
 const COL_GAP: &str = "  ";
 const HEADERS: [&str; 4] = ["CATEGORY", "ITEM", "SIZE", "RISK"];
 
-pub fn risk_name(risk: Risk) -> &'static str {
-    match risk {
-        Risk::Safe => "safe",
-        Risk::Review => "review",
-        Risk::Danger => "danger",
-    }
-}
-
-pub fn run(args: &Args) -> anyhow::Result<()> {
+pub(crate) fn run(args: &Args) -> anyhow::Result<()> {
     let (home, config) = super::load_settings(args)?;
     let (_, items) = super::scan_with_tools(home, config, &args.only);
     let text = if args.json {
@@ -26,7 +18,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     write_ignoring_closed_pipe(&text)
 }
 
-pub fn write_ignoring_closed_pipe(text: &str) -> anyhow::Result<()> {
+pub(crate) fn write_ignoring_closed_pipe(text: &str) -> anyhow::Result<()> {
     match writeln!(io::stdout().lock(), "{text}") {
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         other => Ok(other?),
@@ -42,7 +34,7 @@ pub fn report_json(items: &[Item]) -> anyhow::Result<String> {
                 "label": item.label,
                 "detail": item.detail,
                 "bytes": item.bytes,
-                "risk": risk_name(item.risk),
+                "risk": item.risk.as_str(),
                 "preselected": item.preselected,
             })
         })
@@ -55,7 +47,7 @@ fn row_cells(item: &Item) -> [String; 4] {
         item.category.title().to_string(),
         item.label.clone(),
         format_bytes(item.bytes),
-        risk_name(item.risk).to_string(),
+        item.risk.as_str().to_owned(),
     ]
 }
 
@@ -75,7 +67,7 @@ fn format_row(cells: &[String; 4], widths: &[usize; 4]) -> String {
     format!("{category:<w0$}{COL_GAP}{label:<w1$}{COL_GAP}{size:>w2$}{COL_GAP}{risk}")
 }
 
-pub fn report_table(items: &[Item]) -> String {
+pub(crate) fn report_table(items: &[Item]) -> String {
     let rows: Vec<[String; 4]> = items.iter().map(row_cells).collect();
     let widths = column_widths(&rows);
     let header = HEADERS.map(str::to_string);

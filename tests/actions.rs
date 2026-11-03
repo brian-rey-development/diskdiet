@@ -1,9 +1,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use diskdiet::actions::{
-    applescript_escape, execute, is_safe_delete_target, perform, prune_names, trash_script,
-};
-use diskdiet::model::{Action, Category, Item, Outcome, Risk};
+use diskdiet::actions::{applescript_escape, execute, perform, prune_names, trash_script};
+use diskdiet::model::{Action, Category, Item, Outcome, Removal, Risk, RunMode};
+use diskdiet::safety::is_safe_delete_target;
 use diskdiet::tools::Tools;
 use diskdiet::ui::exec::execution_order;
 use diskdiet::ui::pick::{confirm_prompt, item_label, starts_selected};
@@ -104,7 +103,7 @@ fn every_variant(fx: &DryFixture) -> Vec<Action> {
         Action::RemoveWorktree {
             repo: fx.repo.clone(),
             worktree: fx.worktree.clone(),
-            force: true,
+            removal: Removal::Forced,
         },
         Action::PruneWorktrees {
             repo: fx.repo.clone(),
@@ -117,7 +116,7 @@ fn dry_run_never_touches_files_for_every_variant() {
     let temp = TempDir::new().expect("tempdir");
     let fx = dry_fixture(temp.path());
     for action in every_variant(&fx) {
-        let outcome = execute(&item(action), &Tools::default(), true);
+        let outcome = execute(&item(action), &Tools::default(), RunMode::DryRun);
         assert_eq!(outcome, Outcome::DryRun);
     }
     assert!(fx.dir.exists() && fx.file.exists() && fx.worktree.exists());
@@ -271,11 +270,11 @@ fn run_command_with_missing_program_fails_without_panicking() {
     ));
 }
 
-fn remove(repo: &Path, worktree: &Path, force: bool) -> Outcome {
+fn remove(repo: &Path, worktree: &Path, removal: Removal) -> Outcome {
     let action = Action::RemoveWorktree {
         repo: repo.to_path_buf(),
         worktree: worktree.to_path_buf(),
-        force,
+        removal,
     };
     perform(&action, &Tools::default())
 }
@@ -284,7 +283,7 @@ fn remove(repo: &Path, worktree: &Path, force: bool) -> Outcome {
 fn remove_worktree_removes_the_folder_and_keeps_the_branch() {
     let temp = TempDir::new().expect("tempdir");
     let (repo, worktree) = repo_with_worktree(temp.path());
-    assert_eq!(remove(&repo, &worktree, false), Outcome::Done);
+    assert_eq!(remove(&repo, &worktree, Removal::Rechecked), Outcome::Done);
     assert!(!worktree.exists());
     assert!(branch_exists(&repo, "feature"));
 }
@@ -295,7 +294,7 @@ fn unconfirmed_worktree_that_changed_since_the_scan_is_kept() {
     let (repo, worktree) = repo_with_worktree(temp.path());
     fs::write(worktree.join("scratch.txt"), "written after the scan").expect("file");
     assert!(matches!(
-        remove(&repo, &worktree, false),
+        remove(&repo, &worktree, Removal::Rechecked),
         Outcome::Skipped(_)
     ));
     assert!(worktree.join("scratch.txt").exists());
@@ -306,7 +305,7 @@ fn typed_confirmation_removes_a_dirty_worktree() {
     let temp = TempDir::new().expect("tempdir");
     let (repo, worktree) = repo_with_worktree(temp.path());
     fs::write(worktree.join("scratch.txt"), "uncommitted").expect("dirty file");
-    assert_eq!(remove(&repo, &worktree, true), Outcome::Done);
+    assert_eq!(remove(&repo, &worktree, Removal::Forced), Outcome::Done);
     assert!(!worktree.exists());
 }
 
@@ -428,10 +427,10 @@ fn danger_items_are_marked_and_never_start_selected() {
 #[test]
 fn confirm_prompt_wording_changes_in_dry_run() {
     assert_eq!(
-        confirm_prompt(3, 0, true),
+        confirm_prompt(3, 0, RunMode::DryRun),
         "Dry run: nothing will be deleted. Continue?"
     );
-    assert!(confirm_prompt(3, 0, false).starts_with("Delete 3 items ("));
+    assert!(confirm_prompt(3, 0, RunMode::Live).starts_with("Delete 3 items ("));
 }
 
 #[test]

@@ -1,18 +1,18 @@
-use crate::freedesktop_trash;
-use crate::log;
-use crate::model::{Action, Item, Outcome};
-use crate::platform::{self, IS_MACOS};
-use crate::scan::worktrees::{local_changes, volume_is_mounted};
-use crate::tools::Tools;
+use crate::fsutil::remove_any;
+use crate::git;
+use crate::git::status::local_changes;
+use crate::model::{Action, Item, Outcome, Removal, RunMode};
+use crate::platform::{self, IS_MACOS, NO_HOME, volume_is_mounted};
+use crate::process::run_shielded;
+use crate::safety::is_safe_delete_target;
+use crate::time;
+use crate::tools::{self, Tools};
+use crate::{freedesktop_trash, log};
 use std::io;
-use std::os::unix::process::CommandExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const FALLBACK_OSASCRIPT: &str = "/usr/bin/osascript";
-const FALLBACK_GIT: &str = "git";
 const EMPTY_TRASH_SCRIPT: &str = "tell application \"Finder\" to empty trash";
-const MIN_DELETE_COMPONENTS: usize = 3;
 const STDERR_TAIL_CHARS: usize = 300;
 const PERMISSION_MARKERS: [&str; 2] = ["Operation not permitted", "(-54)"];
 const AUTOMATION_MARKER: &str = "(-1743)";
@@ -23,20 +23,11 @@ const WORKTREE_ADMIN_DIR: &str = ".git/worktrees";
 const GITDIR_FILE: &str = "gitdir";
 const UNPLUGGED_WORKTREE: &str =
     "a worktree of this repo is on a drive that is not plugged in, plug it in first";
-const SHARED_PARENTS: [&str; 6] = [
-    "/users",
-    "/volumes",
-    "/home",
-    "/media",
-    "/mnt",
-    "/run/media",
-];
-const NO_HOME: &str = "HOME is not set";
 const OTHER_DRIVE: &str =
     "it is on another drive, so it cannot go to your Trash. Delete it by hand";
 
-pub fn execute(item: &Item, tools: &Tools, dry_run: bool) -> Outcome {
-    if dry_run {
+pub fn execute(item: &Item, tools: &Tools, mode: RunMode) -> Outcome {
+    if mode == RunMode::DryRun {
         return Outcome::DryRun;
     }
     let outcome = perform(&item.action, tools);
@@ -53,8 +44,8 @@ pub fn perform(action: &Action, tools: &Tools) -> Outcome {
         Action::RemoveWorktree {
             repo,
             worktree,
-            force,
-        } => remove_worktree(tools, repo, worktree, *force),
+            removal,
+        } => remove_worktree(tools, repo, worktree, *removal),
         Action::PruneWorktrees { repo } => prune_worktrees(tools, repo),
     }
 }
@@ -68,91 +59,23 @@ pub fn trash_script(path: &Path) -> String {
     format!("tell application \"Finder\" to delete POSIX file \"{escaped}\"")
 }
 
-pub fn describe(action: &Action) -> String {
-    match action {
-        Action::DeletePath(path) => format!("delete {}", path.display()),
-        Action::MoveToTrash(path) => format!("trash {}", path.display()),
-        Action::EmptyTrash => "empty trash".to_string(),
-        Action::RunCommand { program, args } => {
-            format!("run {} {}", program.display(), args.join(" "))
-        }
-        Action::RemoveWorktree { repo, worktree, .. } => {
-            format!(
-                "remove worktree {} (repo {})",
-                worktree.display(),
-                repo.display()
-            )
-        }
-        Action::PruneWorktrees { repo } => format!("prune worktrees (repo {})", repo.display()),
-    }
-}
-
-fn describe_outcome(outcome: &Outcome) -> String {
-    match outcome {
-        Outcome::Done => "done".to_string(),
-        Outcome::DryRun => "dry-run".to_string(),
-        Outcome::Skipped(why) => format!("skipped: {why}"),
-        Outcome::Failed(why) => format!("failed: {why}"),
-        Outcome::NeedsFullDiskAccess => "needs full disk access".to_string(),
-    }
-}
-
-fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
-}
-
 fn record_outcome(item: &Item, outcome: &Outcome) {
-    let Some(home) = home() else {
+    let Some(home) = platform::home_dir() else {
         return;
     };
-    let line = format!(
-        "{} -> {}",
-        describe(&item.action),
-        describe_outcome(outcome)
-    );
-    log::record(&home, &line);
+    log::record(&home, &format!("{} -> {outcome}", item.action));
 }
 
 fn io_outcome(error: &io::Error) -> Outcome {
     match error.kind() {
         io::ErrorKind::PermissionDenied => Outcome::NeedsFullDiskAccess,
-        io::ErrorKind::NotFound => Outcome::Skipped("already gone".to_string()),
+        io::ErrorKind::NotFound => Outcome::Skipped("already gone".to_owned()),
         _ => Outcome::Failed(error.to_string()),
     }
 }
 
-fn folded(path: &Path) -> PathBuf {
-    PathBuf::from(path.to_string_lossy().to_lowercase())
-}
-
-fn is_plain_absolute(path: &Path) -> bool {
-    path.is_absolute()
-        && path.components().count() >= MIN_DELETE_COMPONENTS
-        && path
-            .components()
-            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)))
-}
-
-fn guards_home(path: &Path, home: &Path) -> bool {
-    let (path, home) = (folded(path), folded(home));
-    home.starts_with(&path) || path.parent() == Some(home.as_path())
-}
-
-fn is_shared_parent_child(path: &Path) -> bool {
-    let parent = path.parent().map(folded);
-    SHARED_PARENTS
-        .iter()
-        .any(|shared| parent.as_deref() == Some(Path::new(shared)))
-}
-
-pub fn is_safe_delete_target(path: &Path, home: Option<&Path>) -> bool {
-    is_plain_absolute(path)
-        && !is_shared_parent_child(path)
-        && home.is_none_or(|home| !guards_home(path, home))
-}
-
 fn guarded(path: &Path, run: impl FnOnce(&Path) -> Outcome) -> Outcome {
-    if !is_safe_delete_target(path, home().as_deref()) {
+    if !is_safe_delete_target(path, platform::home_dir().as_deref()) {
         return Outcome::Failed(format!("refusing to remove {}", path.display()));
     }
     run(path)
@@ -162,7 +85,7 @@ fn trash_outcome(result: io::Result<()>) -> Outcome {
     match result {
         Ok(()) => Outcome::Done,
         Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
-            Outcome::Failed(OTHER_DRIVE.to_string())
+            Outcome::Failed(OTHER_DRIVE.to_owned())
         }
         Err(error) => io_outcome(&error),
     }
@@ -172,10 +95,10 @@ fn move_to_trash(tools: &Tools, path: &Path) -> Outcome {
     if IS_MACOS {
         return run_osascript(tools, &trash_script(path));
     }
-    let Some(home) = home() else {
-        return Outcome::Failed(NO_HOME.to_string());
+    let Some(home) = platform::home_dir() else {
+        return Outcome::Failed(NO_HOME.to_owned());
     };
-    let deleted_at = log::format_timestamp(log::now_secs()).replace(' ', "T");
+    let deleted_at = time::format_timestamp(time::now_secs()).replace(' ', "T");
     trash_outcome(freedesktop_trash::move_to(
         &platform::trash_dir(&home),
         path,
@@ -187,30 +110,21 @@ fn empty_trash(tools: &Tools) -> Outcome {
     if IS_MACOS {
         return run_osascript(tools, EMPTY_TRASH_SCRIPT);
     }
-    let Some(home) = home() else {
-        return Outcome::Failed(NO_HOME.to_string());
+    let Some(home) = platform::home_dir() else {
+        return Outcome::Failed(NO_HOME.to_owned());
     };
     trash_outcome(freedesktop_trash::empty(&platform::trash_dir(&home)))
 }
 
 fn delete_path(path: &Path) -> Outcome {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) => return io_outcome(&error),
-    };
-    let result = if metadata.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    };
-    result.map_or_else(|error| io_outcome(&error), |()| Outcome::Done)
+    remove_any(path).map_or_else(|error| io_outcome(&error), |()| Outcome::Done)
 }
 
-fn tail(text: &str) -> String {
+fn last_chars(text: &str) -> String {
     let trimmed = text.trim();
     let count = trimmed.chars().count();
     if count <= STDERR_TAIL_CHARS {
-        return trimmed.to_string();
+        return trimmed.to_owned();
     }
     trimmed.chars().skip(count - STDERR_TAIL_CHARS).collect()
 }
@@ -227,69 +141,62 @@ fn output_outcome(output: &Output) -> Outcome {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     if stderr.contains(AUTOMATION_MARKER) {
-        return Outcome::Failed(AUTOMATION_BLOCKED.to_string());
+        return Outcome::Failed(AUTOMATION_BLOCKED.to_owned());
     }
     if needs_permission(&stderr) {
         return Outcome::NeedsFullDiskAccess;
     }
-    let detail = tail(&stderr);
+    let detail = last_chars(&stderr);
     if detail.is_empty() {
         return Outcome::Failed(format!("exited with {}", output.status));
     }
     Outcome::Failed(detail)
 }
 
-// A separate process group keeps a Ctrl-C at the terminal from killing the step in progress.
-fn capture(command: &mut Command) -> Outcome {
-    match command.process_group(0).output() {
+fn capture_shielded_from_ctrl_c(command: &mut Command) -> Outcome {
+    match run_shielded(command) {
         Ok(output) => output_outcome(&output),
         Err(error) => Outcome::Failed(error.to_string()),
     }
 }
 
 fn run_command(program: &Path, args: &[String]) -> Outcome {
-    capture(Command::new(program).args(args))
+    capture_shielded_from_ctrl_c(Command::new(program).args(args))
 }
 
 fn run_osascript(tools: &Tools, script: &str) -> Outcome {
-    let program = tools
-        .get("osascript")
-        .unwrap_or(Path::new(FALLBACK_OSASCRIPT));
-    capture(Command::new(program).arg("-e").arg(script))
+    let program = tools.get_or(tools::OSASCRIPT, tools::OSASCRIPT_FALLBACK);
+    capture_shielded_from_ctrl_c(Command::new(program).arg("-e").arg(script))
 }
 
 fn git_command(tools: &Tools, repo: &Path) -> Command {
-    let mut command = Command::new(git_path(tools));
+    let mut command = Command::new(git::program(tools));
     command.arg("-C").arg(repo);
     command
 }
 
-fn git_path(tools: &Tools) -> &Path {
-    tools.get("git").unwrap_or(Path::new(FALLBACK_GIT))
-}
-
 fn changed_since_scan(tools: &Tools, worktree: &Path) -> bool {
-    local_changes(git_path(tools), worktree)
+    local_changes(git::program(tools), worktree)
         .is_none_or(|counts| counts.dirty > 0 || counts.risky_ignored > 0)
 }
 
-fn remove_worktree(tools: &Tools, repo: &Path, worktree: &Path, force: bool) -> Outcome {
-    if !force && changed_since_scan(tools, worktree) {
-        return Outcome::Skipped(CHANGED_SINCE_SCAN.to_string());
+fn remove_worktree(tools: &Tools, repo: &Path, worktree: &Path, removal: Removal) -> Outcome {
+    if removal == Removal::Rechecked && changed_since_scan(tools, worktree) {
+        return Outcome::Skipped(CHANGED_SINCE_SCAN.to_owned());
     }
     let mut remove = git_command(tools, repo);
     remove.args(["worktree", "remove"]);
-    if force {
+    if removal == Removal::Forced {
         remove.arg("--force");
     }
-    capture(remove.arg("--").arg(worktree))
+    capture_shielded_from_ctrl_c(remove.arg("--").arg(worktree))
 }
 
 pub fn prune_names(dry_run_output: &str) -> Vec<String> {
     dry_run_output
         .lines()
         .filter_map(|line| line.strip_prefix(PRUNE_LINE_PREFIX))
-        .filter_map(|rest| rest.split_once(':').map(|(name, _)| name.to_string()))
+        .filter_map(|rest| rest.split_once(':').map(|(name, _)| name.to_owned()))
         .collect()
 }
 
@@ -313,7 +220,7 @@ fn prune_would_forget_unplugged(tools: &Tools, repo: &Path) -> bool {
 
 fn prune_worktrees(tools: &Tools, repo: &Path) -> Outcome {
     if prune_would_forget_unplugged(tools, repo) {
-        return Outcome::Skipped(UNPLUGGED_WORKTREE.to_string());
+        return Outcome::Skipped(UNPLUGGED_WORKTREE.to_owned());
     }
-    capture(git_command(tools, repo).args(["worktree", "prune"]))
+    capture_shielded_from_ctrl_c(git_command(tools, repo).args(["worktree", "prune"]))
 }

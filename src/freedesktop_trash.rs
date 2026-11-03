@@ -1,3 +1,4 @@
+use crate::fsutil::remove_any;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -84,13 +85,6 @@ pub fn move_to(trash: &Path, path: &Path, deleted_at: &str) -> io::Result<()> {
     })
 }
 
-fn remove_entry(path: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(path)?.is_dir() {
-        return fs::remove_dir_all(path);
-    }
-    fs::remove_file(path)
-}
-
 fn clear_dir(dir: &Path) -> io::Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -98,7 +92,7 @@ fn clear_dir(dir: &Path) -> io::Result<()> {
         Err(error) => return Err(error),
     };
     for entry in entries {
-        remove_entry(&entry?.path())?;
+        remove_any(&entry?.path())?;
     }
     Ok(())
 }

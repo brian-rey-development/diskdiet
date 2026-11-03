@@ -1,13 +1,12 @@
 use super::ScanContext;
-use super::caches::{make_item, measured};
+use super::caches::measured;
 use crate::model::{Action, Category, Item, Risk};
+use crate::time::age_days;
 use rayon::prelude::*;
 use std::fs;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 const DOWNLOADS_DIR: &str = "Downloads";
-const SECS_PER_DAY: u64 = 86_400;
 const INSTALLER_EXTENSIONS: [&str; 6] = ["dmg", "pkg", "iso", "deb", "rpm", "appimage"];
 const INSTALLER_GRACE_DAYS: u64 = 7;
 
@@ -51,15 +50,11 @@ fn candidate(entry: &fs::DirEntry, stale_days: u64) -> Option<(PathBuf, Risk, u6
         return None;
     }
     let modified = entry.metadata().ok()?.modified().ok()?;
-    let age_days = SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or_default()
-        .as_secs()
-        / SECS_PER_DAY;
+    let days_old = age_days(modified);
     Some((
         entry.path(),
-        classify_download(&name, age_days, stale_days)?,
-        age_days,
+        classify_download(&name, days_old, stale_days)?,
+        days_old,
     ))
 }
 
@@ -72,7 +67,7 @@ fn download_item(path: PathBuf, risk: Risk, age_days: u64) -> Option<Item> {
         _ => "Old download",
     };
     let detail = format!("{kind} · modified {age_days} days ago");
-    Some(make_item(
+    Some(Item::new(
         Category::Downloads,
         label,
         detail,

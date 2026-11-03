@@ -1,25 +1,30 @@
+use crate::platform;
+use crate::process::run_with_deadline;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::sync::OnceLock;
+use std::time::Duration;
 
-pub const KNOWN_TOOLS: [&str; 11] = [
-    "git",
-    "uv",
-    "pnpm",
-    "npm",
-    "brew",
-    "docker",
-    "colima",
-    "ollama",
-    "cargo",
-    "osascript",
-    "mdls",
+pub(crate) const GIT: &str = "git";
+pub(crate) const GIT_FALLBACK: &str = "git";
+pub(crate) const UV: &str = "uv";
+pub(crate) const PNPM: &str = "pnpm";
+pub(crate) const NPM: &str = "npm";
+pub(crate) const BREW: &str = "brew";
+pub(crate) const DOCKER: &str = "docker";
+pub(crate) const COLIMA: &str = "colima";
+pub(crate) const OLLAMA: &str = "ollama";
+pub(crate) const CARGO: &str = "cargo";
+pub(crate) const OSASCRIPT: &str = "osascript";
+pub(crate) const OSASCRIPT_FALLBACK: &str = "/usr/bin/osascript";
+pub(crate) const MDLS: &str = "mdls";
+
+pub(crate) const KNOWN_TOOLS: [&str; 11] = [
+    GIT, UV, PNPM, NPM, BREW, DOCKER, COLIMA, OLLAMA, CARGO, OSASCRIPT, MDLS,
 ];
 
 const EXEC_BITS: u32 = 0o111;
@@ -29,11 +34,10 @@ const MISE: &str = "mise";
 const MISE_FIXED_LOCATIONS: [&str; 2] = ["/opt/homebrew/bin/mise", "/usr/local/bin/mise"];
 const MISE_HOME_LOCATION: &str = ".local/bin/mise";
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
-const POLL_INTERVAL: Duration = Duration::from_millis(5);
-const READ_GRACE: Duration = Duration::from_millis(500);
-const READ_CHUNK_BYTES: usize = 64 * 1024;
 const PATH_MARKER: &str = "__DISKDIET_PATH__=";
 const PRINT_PATH: &str = "printf '\\n__DISKDIET_PATH__=%s\\n' \"$PATH\"";
+
+type LoginShellPath = OnceLock<Option<OsString>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Tools {
@@ -42,12 +46,12 @@ pub struct Tools {
 
 impl Tools {
     pub fn discover() -> Self {
-        let login_path = login_shell_path();
+        let login_path = LoginShellPath::new();
         let resolved = KNOWN_TOOLS
             .par_iter()
             .filter_map(|name| {
-                let path = resolve(name, login_path.as_deref())?;
-                Some(((*name).to_string(), path))
+                let path = locate_tool(name, &login_path)?;
+                Some(((*name).to_owned(), path))
             })
             .collect();
         Self { resolved }
@@ -60,18 +64,24 @@ impl Tools {
     pub fn get(&self, name: &str) -> Option<&Path> {
         self.resolved.get(name).map(PathBuf::as_path)
     }
+
+    pub(crate) fn get_or<'a>(&'a self, name: &str, fallback: &'a str) -> &'a Path {
+        self.get(name).unwrap_or(Path::new(fallback))
+    }
 }
 
-fn resolve(name: &str, login_path: Option<&OsStr>) -> Option<PathBuf> {
+fn locate_tool(name: &str, login_path: &LoginShellPath) -> Option<PathBuf> {
     resolve_on_path(name)
-        .or_else(|| login_path.and_then(|path| find_on_path(name, path)))
+        .or_else(|| {
+            let path = login_path.get_or_init(login_shell_path).as_deref()?;
+            find_on_path(name, path)
+        })
         .or_else(|| resolve_via_mise(name))
 }
 
 fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path)
-        .map(|meta| meta.is_file() && meta.permissions().mode() & EXEC_BITS != 0)
-        .unwrap_or(false)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & EXEC_BITS != 0)
 }
 
 pub fn find_on_path(name: &str, path_var: &OsStr) -> Option<PathBuf> {
@@ -86,7 +96,7 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
     find_on_path(name, &path_var)
 }
 
-pub fn marked_path(output: &str) -> Option<OsString> {
+pub fn path_from_login_shell_output(output: &str) -> Option<OsString> {
     output
         .lines()
         .find_map(|line| line.trim().strip_prefix(PATH_MARKER))
@@ -98,13 +108,13 @@ fn login_shell_path() -> Option<OsString> {
     let mut command = Command::new(shell);
     command.args([SHELL_FLAGS, PRINT_PATH]);
     let (_, stdout) = run_with_deadline(&mut command, LOOKUP_TIMEOUT)?;
-    marked_path(&String::from_utf8_lossy(&stdout))
+    path_from_login_shell_output(&String::from_utf8_lossy(&stdout))
 }
 
 fn mise_binary() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = MISE_FIXED_LOCATIONS.iter().map(PathBuf::from).collect();
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(Path::new(&home).join(MISE_HOME_LOCATION));
+    if let Some(home) = platform::home_dir() {
+        candidates.push(home.join(MISE_HOME_LOCATION));
     }
     resolve_on_path(MISE).or_else(|| candidates.into_iter().find(|path| is_executable(path)))
 }
@@ -116,53 +126,6 @@ fn resolve_via_mise(name: &str) -> Option<PathBuf> {
     let found = last_absolute_path(&String::from_utf8_lossy(&stdout))?;
     let named = found.file_name() == Some(OsStr::new(name));
     (status.success() && named && is_executable(&found)).then_some(found)
-}
-
-fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
-    loop {
-        if let Some(status) = child.try_wait().ok()? {
-            return Some(status);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(POLL_INTERVAL);
-    }
-}
-
-fn spawn_reader(mut stdout: ChildStdout) -> (Arc<Mutex<Vec<u8>>>, mpsc::Receiver<()>) {
-    let buffer = Arc::new(Mutex::new(Vec::new()));
-    let (done, finished) = mpsc::channel();
-    let sink = Arc::clone(&buffer);
-    std::thread::spawn(move || {
-        let mut chunk = [0u8; READ_CHUNK_BYTES];
-        while let Ok(read @ 1..) = stdout.read(&mut chunk) {
-            if let Ok(mut bytes) = sink.lock() {
-                bytes.extend_from_slice(&chunk[..read]);
-            }
-        }
-        let _ = done.send(());
-    });
-    (buffer, finished)
-}
-
-pub fn run_with_deadline(
-    command: &mut Command,
-    timeout: Duration,
-) -> Option<(ExitStatus, Vec<u8>)> {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let (buffer, finished) = spawn_reader(child.stdout.take()?);
-    let status = wait_until(&mut child, Instant::now() + timeout)?;
-    let _ = finished.recv_timeout(READ_GRACE);
-    let bytes = buffer.lock().ok()?.clone();
-    Some((status, bytes))
 }
 
 fn path_in_segment(segment: &str) -> Option<PathBuf> {

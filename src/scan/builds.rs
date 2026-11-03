@@ -1,17 +1,15 @@
 use super::ScanContext;
+use crate::fmt::{format_age, tilde_path};
+use crate::fsutil::child_dirs;
 use crate::model::{Action, Category, Item, Risk};
 use crate::size::{disk_usage, format_bytes};
+use crate::time::{SECS_PER_DAY, secs_since};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
-const SECS_PER_DAY: u64 = 86_400;
 const PYVENV_CONFIG: &str = "pyvenv.cfg";
-const DAYS_PER_MONTH: u64 = 30;
-const DAYS_PER_YEAR: u64 = 365;
-const MONTHS_THRESHOLD_DAYS: u64 = 60;
 const MAX_WALK_DEPTH: usize = 12;
 const GIT_DIR: &str = ".git";
 const NODE_MODULES: &str = "node_modules";
@@ -20,40 +18,6 @@ const LINKED_WORKTREE_MARKER: &str = "/worktrees/";
 const VENV_HINT: &str = "run `uv sync` to recreate";
 
 type Found = BTreeMap<PathBuf, (Category, Risk)>;
-
-pub fn plural_s(count: u64) -> &'static str {
-    if count == 1 { "" } else { "s" }
-}
-
-pub fn format_age(secs: u64) -> String {
-    let days = secs / SECS_PER_DAY;
-    match days {
-        0 => "today".to_string(),
-        1..MONTHS_THRESHOLD_DAYS => format!("{days} day{} ago", plural_s(days)),
-        MONTHS_THRESHOLD_DAYS..DAYS_PER_YEAR => {
-            let months = days / DAYS_PER_MONTH;
-            format!("{months} months ago")
-        }
-        _ => {
-            let years = days / DAYS_PER_YEAR;
-            format!("{years} year{} ago", plural_s(years))
-        }
-    }
-}
-
-pub fn secs_since(time: SystemTime) -> u64 {
-    SystemTime::now()
-        .duration_since(time)
-        .map_or(0, |elapsed| elapsed.as_secs())
-}
-
-pub fn tilde_path(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => path.display().to_string(),
-    }
-}
 
 fn is_real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
@@ -101,17 +65,6 @@ fn is_excluded(dir: &Path, ctx: &ScanContext) -> bool {
         .exclude
         .iter()
         .any(|excluded| dir.starts_with(excluded))
-}
-
-fn child_dirs(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .collect()
 }
 
 fn walk(dir: &Path, depth: usize, ctx: &ScanContext, found: &mut Found) {
@@ -177,16 +130,14 @@ fn describe(path: &Path, category: Category, bytes: u64) -> String {
 
 fn build_item(path: &Path, category: Category, risk: Risk, home: &Path) -> Item {
     let bytes = disk_usage(&[path.to_path_buf()]);
-    Item {
+    Item::new(
         category,
-        label: tilde_path(path, home),
-        detail: describe(path, category, bytes),
+        tilde_path(path, home),
+        describe(path, category, bytes),
         bytes,
         risk,
-        action: Action::DeletePath(path.to_path_buf()),
-        preselected: risk == Risk::Safe,
-        typed_confirmation: None,
-    }
+        Action::DeletePath(path.to_path_buf()),
+    )
 }
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {

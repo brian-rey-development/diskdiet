@@ -1,12 +1,15 @@
 use super::ScanContext;
-use super::builds::tilde_path;
-use super::caches::{make_item, run_stdout};
+use crate::fmt::tilde_path;
 use crate::model::{Action, Category, Item, Risk};
+use crate::process::{DEFAULT_TIMEOUT, run_stdout};
 use crate::size::disk_usage;
+use crate::time::signed::{SECS_PER_DAY, SECS_PER_HOUR, SECS_PER_MINUTE};
+use crate::time::{now_secs, unix_days_from_date};
+use crate::tools;
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 const SYSTEM_APPLICATIONS: &str = "/Applications";
 const USER_APPLICATIONS: &str = "Applications";
@@ -21,16 +24,10 @@ const PREFERENCES_DIR: &str = "Library/Preferences";
 const CONTAINERS_DIR: &str = "Library/Containers";
 const APP_SUPPORT_DIR: &str = "Library/Application Support";
 const PLIST_EXTENSION: &str = "plist";
-const SECS_PER_DAY: i64 = 86_400;
-const SECS_PER_HOUR: i64 = 3_600;
-const SECS_PER_MINUTE: i64 = 60;
 const MAX_MONTH: i64 = 12;
 const MAX_DAY: i64 = 31;
 const MAX_HOUR: i64 = 23;
 const MAX_MINUTE_OR_SECOND: i64 = 59;
-const YEARS_PER_ERA: i64 = 400;
-const DAYS_PER_ERA: i64 = 146_097;
-const EPOCH_SHIFT_DAYS: i64 = 719_468;
 
 const TERMINAL_APPS: [(&str, &str); 7] = [
     ("iTerm.app", "iTerm.app"),
@@ -43,13 +40,13 @@ const TERMINAL_APPS: [(&str, &str); 7] = [
 ];
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
-    let Some(mdls) = ctx.tools.get("mdls") else {
+    let Some(mdls) = ctx.tools.get(tools::MDLS) else {
         return Vec::new();
     };
     let terminal = std::env::var(TERM_PROGRAM_VAR)
         .ok()
         .and_then(|program| terminal_app_name(&program));
-    let now = now_secs();
+    let now = i64::try_from(now_secs()).unwrap_or(0);
     app_bundles(ctx)
         .into_par_iter()
         .filter(|path| !is_protected(path, terminal.as_deref()))
@@ -69,7 +66,7 @@ pub fn parse_mdls_date(text: &str) -> Option<i64> {
     let (year, month, day) = parse_date(parts.next()?)?;
     let clock = parse_clock(parts.next()?)?;
     let offset = parts.next().map_or(Some(0), parse_offset)?;
-    Some(days_from_civil(year, month, day) * SECS_PER_DAY + clock - offset)
+    Some(unix_days_from_date(year, month, day) * SECS_PER_DAY + clock - offset)
 }
 
 pub fn staleness(last_used: Option<i64>, now: i64, stale_days: u64) -> Option<String> {
@@ -110,24 +107,6 @@ fn parse_offset(text: &str) -> Option<i64> {
     Some(sign * (hours * SECS_PER_HOUR + minutes * SECS_PER_MINUTE))
 }
 
-// Howard Hinnant's days_from_civil: exact for the proleptic Gregorian calendar.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(YEARS_PER_ERA);
-    let year_of_era = year - era * YEARS_PER_ERA;
-    let shifted_month = (month + 9) % 12;
-    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * DAYS_PER_ERA + day_of_era - EPOCH_SHIFT_DAYS
-}
-
-fn now_secs() -> i64 {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    i64::try_from(elapsed.as_secs()).unwrap_or(0)
-}
-
 fn app_bundles(ctx: &ScanContext) -> Vec<PathBuf> {
     let roots = [
         PathBuf::from(SYSTEM_APPLICATIONS),
@@ -156,7 +135,11 @@ fn is_protected(path: &Path, terminal: Option<&str>) -> bool {
 }
 
 fn mdls_value(mdls: &Path, attribute: &str, path: &Path) -> Option<String> {
-    let raw = run_stdout(mdls, &["-raw", "-name", attribute, path.to_str()?])?;
+    let raw = run_stdout(
+        mdls,
+        &["-raw", "-name", attribute, path.to_str()?],
+        DEFAULT_TIMEOUT,
+    )?;
     let value = raw.trim();
     (!value.is_empty() && value != "(null)").then(|| value.to_string())
 }
@@ -197,7 +180,7 @@ fn app_item(ctx: &ScanContext, mdls: &Path, path: PathBuf, now: i64) -> Option<I
     let bytes = disk_usage(std::slice::from_ref(&path));
     let label = path.file_stem()?.to_string_lossy().into_owned();
     let detail = format!("{status} · {}", tilde_path(&path, &ctx.home));
-    Some(make_item(
+    Some(Item::new(
         Category::UnusedApps,
         label,
         detail,

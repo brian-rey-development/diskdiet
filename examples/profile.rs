@@ -1,24 +1,30 @@
+use anyhow::Context;
 use diskdiet::{
     config,
+    platform::{NO_HOME, home_dir},
     scan::{SCANNERS, ScanContext},
     tools::Tools,
 };
-use std::{path::PathBuf, time::Instant};
+use std::time::Instant;
 
 fn main() -> anyhow::Result<()> {
-    let home = PathBuf::from(std::env::var("HOME")?);
-    let t = Instant::now();
+    let home = home_dir().context(NO_HOME)?;
+    let started = Instant::now();
     let tools = Tools::discover();
-    println!("tools {:?}", t.elapsed());
+    println!("tools {:?}", started.elapsed());
     let ctx = ScanContext {
         config: config::load(None, &home)?,
         home,
         tools,
     };
-    for (name, scan) in SCANNERS {
-        let t = Instant::now();
-        let n = scan(&ctx).len();
-        println!("{name:10} {:>8.2?} items={n}", t.elapsed());
+    for scanner in SCANNERS {
+        let started = Instant::now();
+        let item_count = (scanner.scan)(&ctx).len();
+        println!(
+            "{:10} {:>8.2?} items={item_count}",
+            scanner.name,
+            started.elapsed()
+        );
     }
     Ok(())
 }
