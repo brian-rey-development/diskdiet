@@ -31,27 +31,27 @@ fn owned_path(item: &Item) -> Option<&Path> {
     (named || located).then_some(path.as_path())
 }
 
-pub(crate) fn owner_is_running_now(item: &Item) -> bool {
+pub(crate) fn owner_is_running_per_ps(item: &Item) -> bool {
     let Some(path) = owned_path(item) else {
         return false;
     };
     let processes = running_processes();
-    owner_is_running(&item.label, &processes) || path_owner_is_running(path, &processes)
+    named_owner_in(&item.label, &processes) || path_owner_in(path, &processes)
 }
 
-pub fn path_owner_is_running(path: &Path, processes: &str) -> bool {
+pub fn path_owner_in(path: &Path, processes: &str) -> bool {
     PATH_OWNERS
         .iter()
-        .any(|(rel, marker)| path.ends_with(rel) && process_matches(processes, marker))
+        .any(|(rel, marker)| path.ends_with(rel) && listing_has_process(processes, marker))
 }
 
-pub fn owner_is_running(name: &str, processes: &str) -> bool {
+pub fn named_owner_in(name: &str, processes: &str) -> bool {
     RUNNING_OWNERS
         .iter()
-        .any(|(cache, marker)| *cache == name && process_matches(processes, marker))
+        .any(|(cache, marker)| *cache == name && listing_has_process(processes, marker))
 }
 
-pub fn process_matches(processes: &str, marker: &str) -> bool {
+pub fn listing_has_process(processes: &str, marker: &str) -> bool {
     if marker.starts_with(PATH_MARKER_PREFIX) {
         return listing_contains_path_fragment(processes, marker);
     }

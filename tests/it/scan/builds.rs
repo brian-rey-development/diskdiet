@@ -1,16 +1,15 @@
-mod common;
-
+use crate::support::SECS_PER_DAY;
+use crate::support::STALE_DAYS;
+use crate::support::fixtures::{temp_root, test_ctx, write_file};
+use crate::support::git::{add_worktree, git, init_repo};
 use anyhow::{Result, anyhow, ensure};
-use common::{add_worktree, git, init_repo, temp_root, test_ctx, write_file};
-use diskdiet::fmt::{format_age, tilde_path};
 use diskdiet::model::{Action, Category, Item, Risk};
 use diskdiet::scan::builds::{classify, scan};
 use std::fs::{self, OpenOptions};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-const SECS_PER_DAY: u64 = 86_400;
-const STALE_AGE_DAYS: u64 = 90;
 const CACHEDIR_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55";
 
 fn make_dir(path: &Path) -> Result<PathBuf> {
@@ -120,7 +119,7 @@ fn node_modules_is_offered_only_when_the_project_is_stale() -> Result<()> {
         write_file(&root.join(project).join("package.json"), "{}")?;
         write_file(&root.join(project).join("node_modules/dep/index.js"), "x")?;
     }
-    age_file(&root.join("stale/package.json"), STALE_AGE_DAYS)?;
+    age_file(&root.join("stale/package.json"), STALE_DAYS)?;
     let item = only_item(scan_root(&root))?;
     assert_eq!(
         item.action,
@@ -146,7 +145,7 @@ fn symlinked_target_is_never_a_build_dir() -> Result<()> {
     let (_tmp, root) = temp_root()?;
     write_file(&root.join("crate/Cargo.toml"), "[package]")?;
     let real = make_dir(&root.join("elsewhere"))?;
-    std::os::unix::fs::symlink(&real, root.join("crate/target"))?;
+    symlink(&real, root.join("crate/target"))?;
     assert_eq!(classify(&root.join("crate/target")), None);
     assert!(scan_root(&root).is_empty());
     Ok(())
@@ -164,16 +163,4 @@ fn linked_worktrees_are_left_to_the_worktree_scanner() -> Result<()> {
     payload(&worktree.join("target"))?;
     assert!(scan_root(&root).is_empty());
     Ok(())
-}
-
-#[test]
-fn ages_and_paths_read_naturally() {
-    assert_eq!(format_age(0), "today");
-    assert_eq!(format_age(SECS_PER_DAY), "1 day ago");
-    assert_eq!(format_age(9 * SECS_PER_DAY), "9 days ago");
-    assert_eq!(format_age(90 * SECS_PER_DAY), "3 months ago");
-    assert_eq!(format_age(800 * SECS_PER_DAY), "2 years ago");
-    let home = Path::new("/Users/me");
-    assert_eq!(tilde_path(&home.join("dev/app"), home), "~/dev/app");
-    assert_eq!(tilde_path(Path::new("/opt/x"), home), "/opt/x");
 }

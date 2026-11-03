@@ -1,6 +1,6 @@
 pub mod exec;
 mod finish;
-mod notices;
+pub mod notices;
 pub mod pick;
 pub mod report;
 pub mod share;

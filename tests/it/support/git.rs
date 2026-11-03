@@ -1,24 +1,16 @@
-#![allow(dead_code)]
-
+use super::fixtures::write_file;
 use anyhow::{Result, ensure};
-use diskdiet::config::Config;
-use diskdiet::scan::ScanContext;
-use diskdiet::tools::Tools;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::TempDir;
+
+pub const GIT: &str = "git";
 
 const GITIGNORE: &str = ".env\ntarget/\nnode_modules/\n";
-
-pub fn temp_root() -> Result<(TempDir, PathBuf)> {
-    let dir = tempfile::tempdir()?;
-    let root = fs::canonicalize(dir.path())?;
-    Ok((dir, root))
-}
+const MAIN_BRANCH: &str = "main";
 
 pub fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let output = Command::new(GIT)
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.email=test@example.com", "-c", "user.name=Test"])
@@ -30,13 +22,6 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-pub fn write_file(path: &Path, contents: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    Ok(fs::write(path, contents)?)
-}
-
 pub fn commit_file(repo: &Path, name: &str, contents: &str, message: &str) -> Result<()> {
     write_file(&repo.join(name), contents)?;
     git(repo, &["add", "-A"])?;
@@ -45,7 +30,7 @@ pub fn commit_file(repo: &Path, name: &str, contents: &str, message: &str) -> Re
 
 pub fn init_repo(repo: &Path) -> Result<()> {
     fs::create_dir_all(repo)?;
-    git(repo, &["init", "-b", "main"])?;
+    git(repo, &["init", "-b", MAIN_BRANCH])?;
     write_file(&repo.join(".gitignore"), GITIGNORE)?;
     commit_file(repo, "README.md", "hello", "initial")
 }
@@ -56,23 +41,14 @@ pub fn add_worktree(repo: &Path, path: &Path, branch: &str) -> Result<PathBuf> {
     Ok(fs::canonicalize(path)?)
 }
 
-pub fn test_config(dev_roots: Vec<PathBuf>) -> Config {
-    Config {
-        dev_roots,
-        exclude: Vec::new(),
-        extra_cache_dirs: Vec::new(),
-        stale_app_days: 90,
-        stale_download_days: 90,
-        stale_node_modules_days: 30,
-        docker_prune_until_hours: 720,
-        low_space_warning_gb: 100,
-    }
+pub fn repo_with_worktree(root: &Path, branch: &str) -> Result<(PathBuf, PathBuf)> {
+    let repo = root.join("repo");
+    init_repo(&repo)?;
+    let worktree = add_worktree(&repo, &root.join(format!("wt-{branch}")), branch)?;
+    Ok((repo, worktree))
 }
 
-pub fn test_ctx(home: &Path, dev_roots: Vec<PathBuf>) -> ScanContext {
-    ScanContext {
-        home: home.to_path_buf(),
-        config: test_config(dev_roots),
-        tools: Tools::default(),
-    }
+pub fn branch_exists(repo: &Path, name: &str) -> Result<bool> {
+    let listing = git(repo, &["branch", "--list", name])?;
+    Ok(!listing.trim().is_empty())
 }

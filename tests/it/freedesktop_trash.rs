@@ -1,15 +1,26 @@
 use anyhow::{Result, anyhow};
-use diskdiet::freedesktop_trash::{empty, encode_path, info_text, move_to};
-use diskdiet::model::Risk;
-use diskdiet::platform::{self, IS_MACOS, volume_is_mounted};
-use diskdiet::scan::caches::process_matches;
-use diskdiet::scan::downloads::{classify_download, is_installer};
+use diskdiet::freedesktop_trash::{deletion_date_now, empty, encode_path, info_text, move_to};
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 
 const DELETED_AT: &str = "2026-11-03T10:00:00";
-const STALE_DAYS: u64 = 90;
+const DELETION_DATE_LEN: usize = "2026-01-02T03:04:05".len();
+const DATE_TIME_SEPARATOR_INDEX: usize = 10;
+
+#[test]
+fn deletion_date_uses_a_t_separator_and_no_spaces() {
+    let date = deletion_date_now();
+    assert_eq!(date.len(), DELETION_DATE_LEN);
+    assert_eq!(date.as_bytes()[DATE_TIME_SEPARATOR_INDEX], b'T');
+    assert!(!date.contains(' '));
+}
+
+#[test]
+fn encoded_paths_percent_encode_spaces_and_non_ascii_bytes() {
+    assert_eq!(encode_path(Path::new("/a b/é")), "/a%20b/%C3%A9");
+    assert_eq!(encode_path(Path::new("/keep-_.~/ok")), "/keep-_.~/ok");
+}
 
 #[test]
 fn trash_info_follows_the_freedesktop_format() {
@@ -77,46 +88,10 @@ fn emptying_a_trash_that_does_not_exist_is_fine() -> Result<()> {
 }
 
 #[test]
-fn linux_process_names_match_whole_names_only() {
-    let processes = "systemd\n  chrome\n/usr/lib/firefox/firefox\nchrome_crashpad\n";
-    assert!(process_matches(processes, "chrome"));
-    assert!(process_matches(processes, "firefox"));
-    assert!(!process_matches("chrome_crashpad\n", "chrome"));
-    assert!(!process_matches(processes, "steam"));
-}
-
-#[test]
-fn drives_under_linux_mount_points_count_as_unplugged_when_missing() {
-    assert!(!volume_is_mounted(Path::new(
-        "/media/me/diskdiet-missing/wt"
-    )));
-    assert!(!volume_is_mounted(Path::new("/mnt/diskdiet-missing/wt")));
-    assert!(!volume_is_mounted(Path::new(
-        "/Volumes/diskdiet-missing/wt"
-    )));
-    assert!(volume_is_mounted(Path::new("/home/me/wt")));
-}
-
-#[test]
-fn linux_packages_count_as_installers() {
-    assert!(is_installer("tool_1.2_amd64.deb"));
-    assert!(is_installer("tool.x86_64.rpm"));
-    assert!(is_installer("Tool.AppImage"));
-    assert_eq!(
-        classify_download("tool.deb", 30, STALE_DAYS),
-        Some(Risk::Safe)
-    );
-}
-
-#[test]
-fn platform_paths_follow_each_system_convention() {
-    let home = Path::new("/home/me");
-    let (log, trash) = (platform::log_path(home), platform::trash_dir(home));
-    if IS_MACOS {
-        assert_eq!(log, home.join("Library/Logs/diskdiet.log"));
-        assert_eq!(trash, home.join(".Trash"));
-        return;
-    }
-    assert!(log.ends_with("diskdiet/diskdiet.log"));
-    assert!(trash.ends_with("Trash"));
+fn emptying_the_trash_removes_the_directory_size_cache() -> Result<()> {
+    let trash = tempdir()?;
+    fs::write(trash.path().join("directorysizes"), "1 2 name\n")?;
+    empty(trash.path())?;
+    assert!(!trash.path().join("directorysizes").exists());
+    Ok(())
 }

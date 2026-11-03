@@ -1,4 +1,4 @@
-use super::owners::{OWNER_RUNNING_NOTE, path_owner_is_running};
+use super::owners::{OWNER_RUNNING_NOTE, path_owner_in};
 use crate::fmt::tilde_path;
 use crate::model::{Action, Category, Item, Risk};
 use crate::platform::IS_MACOS;
@@ -113,7 +113,7 @@ pub(super) fn package_caches(ctx: &ScanContext, processes: &str) -> Vec<Item> {
 }
 
 fn path_cache_risk(path: &Path, processes: &str) -> Risk {
-    if path_owner_is_running(path, processes) {
+    if path_owner_in(path, processes) {
         return Risk::Review;
     }
     Risk::Safe

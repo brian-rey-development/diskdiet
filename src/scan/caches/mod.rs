@@ -6,8 +6,8 @@ use super::ScanContext;
 use crate::model::Item;
 
 pub use app::{app_cache_risk, app_cache_risk_now};
-pub(crate) use owners::owner_is_running_now;
-pub use owners::{owner_is_running, path_owner_is_running, process_matches};
+pub(crate) use owners::owner_is_running_per_ps;
+pub use owners::{listing_has_process, named_owner_in, path_owner_in};
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
     let processes = owners::running_processes();

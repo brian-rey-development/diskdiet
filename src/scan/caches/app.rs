@@ -1,4 +1,4 @@
-use super::owners::{OWNER_RUNNING_NOTE, owner_is_running};
+use super::owners::{OWNER_RUNNING_NOTE, named_owner_in};
 use crate::model::{Action, Category, Item, Risk};
 use crate::platform::app_caches_dir;
 use crate::scan::ScanContext;
@@ -59,7 +59,7 @@ pub fn app_cache_risk(name: &str) -> Option<Risk> {
 
 pub fn app_cache_risk_now(name: &str, processes: &str) -> Option<Risk> {
     match app_cache_risk(name)? {
-        Risk::Safe if owner_is_running(name, processes) => Some(Risk::Review),
+        Risk::Safe if named_owner_in(name, processes) => Some(Risk::Review),
         risk => Some(risk),
     }
 }
