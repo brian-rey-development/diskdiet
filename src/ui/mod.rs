@@ -1,32 +1,21 @@
 pub mod exec;
-pub mod finish;
+mod finish;
+mod notices;
 pub mod pick;
 pub mod report;
 pub mod share;
+mod summary;
 
 use crate::cli::Args;
-use crate::config::{self, Config};
 use crate::disk::free_bytes;
-use crate::fmt::count_noun;
-use crate::model::{Category, Item, RunMode};
-use crate::platform::{self, NO_HOME};
-use crate::process::run_stdout;
-use crate::scan::{ScanContext, scan_only};
-use crate::size::format_bytes;
-use crate::tools::{self, Tools};
-use anyhow::Context;
-use console::style;
+use crate::model::Item;
+use crate::scan::ScanContext;
+use crate::session;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 const CANCEL_MESSAGE: &str = "Diet postponed. Nothing was deleted.";
 const NOTHING_TO_TRIM: &str = "Nothing to trim. Your disk is already lean.";
 const NOTHING_SELECTED: &str = "Nothing selected. Your disk stays exactly as it is.";
-const WEIGHING: &str = "Weighing your disk...";
-const DOCKER_SKIPPED: &str = "Docker is not running, skipped";
-const BYTES_PER_GB: u64 = 1_000_000_000;
-const DOCKER_INFO_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     if args.report {
@@ -41,58 +30,23 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     }
 }
 
-pub(crate) fn is_interrupt(error: &anyhow::Error) -> bool {
+fn is_interrupt(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<io::Error>()
-        .is_some_and(|e| e.kind() == io::ErrorKind::Interrupted)
-}
-
-pub(crate) fn home_dir() -> anyhow::Result<PathBuf> {
-    platform::home_dir().context(NO_HOME)
-}
-
-pub(crate) fn load_settings(args: &Args) -> anyhow::Result<(PathBuf, Config)> {
-    let home = home_dir()?;
-    let mut config = config::load(args.config.as_deref(), &home)?;
-    for root in &args.roots {
-        config.dev_roots.push(checked_root(root, &home)?);
-    }
-    Ok((home, config))
-}
-
-fn checked_root(root: &Path, home: &Path) -> anyhow::Result<PathBuf> {
-    let expanded = config::expand_tilde(root, home);
-    std::fs::canonicalize(&expanded)
-        .ok()
-        .filter(|path| path.is_dir())
-        .ok_or_else(|| anyhow::anyhow!("--root {} is not a folder", root.display()))
-}
-
-pub(crate) fn scan_with_tools(
-    home: PathBuf,
-    config: Config,
-    only: &[Category],
-) -> (ScanContext, Vec<Item>) {
-    let ctx = ScanContext {
-        home,
-        config,
-        tools: Tools::discover(),
-    };
-    let items = scan_only(&ctx, only);
-    (ctx, items)
+        .is_some_and(|cause| cause.kind() == io::ErrorKind::Interrupted)
 }
 
 fn interactive(args: &Args) -> anyhow::Result<()> {
-    let (home, config) = load_settings(args)?;
+    let (home, config) = session::load_settings(args)?;
     let low_space_gb = config.low_space_warning_gb;
-    open(args, free_bytes(&home)?, low_space_gb)?;
-    let (ctx, items) = weigh(home, config, &args.only);
+    notices::show_intro(args, free_bytes(&home)?, low_space_gb)?;
+    let (ctx, items) = notices::scan_with_spinner(home, config, &args.only);
     if items.is_empty() {
         cliclack::outro(NOTHING_TO_TRIM)?;
         return Ok(());
     }
-    summary(&items)?;
-    docker_note(&ctx, &items, &args.only)?;
+    summary::show_summary(&items)?;
+    notices::docker_note(&ctx, &items, &args.only)?;
     let chosen = pick::pick_all(&items)?;
     let selected: Vec<&Item> = chosen.iter().map(|&index| &items[index]).collect();
     execute_selection(args, &ctx, &selected)
@@ -110,104 +64,4 @@ fn execute_selection(args: &Args, ctx: &ScanContext, selected: &[&Item]) -> anyh
     let before_free = free_bytes(&ctx.home)?;
     let executed = exec::execute_all(selected, &ctx.tools, args.run_mode());
     finish::finish(args, &ctx.home, &executed, before_free)
-}
-
-fn open(args: &Args, before_free: u64, low_space_gb: u64) -> io::Result<()> {
-    let tag = match args.run_mode() {
-        RunMode::DryRun => " diskdiet (dry run) ",
-        RunMode::Live => " diskdiet ",
-    };
-    cliclack::intro(style(tag).reverse().bold())?;
-    cliclack::log::info(format!(
-        "{} free right now",
-        style(format_bytes(before_free)).bold()
-    ))?;
-    if before_free < low_space_gb.saturating_mul(BYTES_PER_GB) {
-        cliclack::log::warning("You are running low on space. Time for a diet.")?;
-    }
-    Ok(())
-}
-
-fn weigh(home: PathBuf, config: Config, only: &[Category]) -> (ScanContext, Vec<Item>) {
-    let spinner = cliclack::spinner();
-    spinner.start(WEIGHING);
-    let (ctx, items) = scan_with_tools(home, config, only);
-    let total: u64 = items.iter().map(|item| item.bytes).sum();
-    spinner.stop(format!(
-        "Found {} across {} items",
-        format_bytes(total),
-        items.len()
-    ));
-    (ctx, items)
-}
-
-struct CategoryRow {
-    category: Category,
-    bytes: u64,
-    count: usize,
-}
-
-fn category_rows(items: &[Item]) -> Vec<CategoryRow> {
-    let mut rows: Vec<CategoryRow> = Category::ALL
-        .iter()
-        .map(|&category| {
-            let own = items.iter().filter(|item| item.category == category);
-            CategoryRow {
-                category,
-                bytes: own.clone().map(|i| i.bytes).sum(),
-                count: own.count(),
-            }
-        })
-        .filter(|row| row.count > 0)
-        .collect();
-    rows.sort_by_key(|row| std::cmp::Reverse(row.bytes));
-    rows
-}
-
-fn render_rows(rows: &[CategoryRow]) -> String {
-    let width = rows
-        .iter()
-        .map(|r| r.category.title().len())
-        .max()
-        .unwrap_or(0);
-    let lines: Vec<String> = rows
-        .iter()
-        .map(|row| {
-            let size = format!("{:>9}", format_bytes(row.bytes));
-            let title = format!("{:<width$}", row.category.title());
-            format!(
-                "{title}  {}  {}",
-                style(size).bold(),
-                style(count_noun(row.count, "item", "items")).dim()
-            )
-        })
-        .collect();
-    lines.join("\n")
-}
-
-fn summary(items: &[Item]) -> io::Result<()> {
-    let total: u64 = items.iter().map(|item| item.bytes).sum();
-    let title = format!(
-        "You can lose up to {}",
-        style(format_bytes(total)).bold().green()
-    );
-    cliclack::note(title, render_rows(&category_rows(items)))
-}
-
-fn docker_note(ctx: &ScanContext, items: &[Item], only: &[Category]) -> io::Result<()> {
-    if !only.is_empty() && !only.contains(&Category::Docker) {
-        return Ok(());
-    }
-    let has_docker_items = items.iter().any(|item| item.category == Category::Docker);
-    let Some(docker) = ctx.tools.get(tools::DOCKER) else {
-        return Ok(());
-    };
-    if has_docker_items || docker_is_running(docker) {
-        return Ok(());
-    }
-    cliclack::log::remark(DOCKER_SKIPPED)
-}
-
-fn docker_is_running(docker: &Path) -> bool {
-    run_stdout(docker, &["info"], DOCKER_INFO_TIMEOUT).is_some()
 }

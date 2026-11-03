@@ -43,7 +43,7 @@ fn build_prompt(category: Category, entries: &[(usize, &Item)]) -> cliclack::Mul
     let initial = entries
         .iter()
         .filter(|(_, item)| starts_selected(item))
-        .map(|(i, _)| *i);
+        .map(|(index, _)| *index);
     prompt.initial_values(initial.collect())
 }
 
