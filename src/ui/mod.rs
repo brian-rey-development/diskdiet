@@ -1,32 +1,47 @@
+pub mod entries;
 pub mod exec;
 mod finish;
+pub mod layout;
 pub mod notices;
 pub mod pick;
 pub mod report;
+pub mod review;
+pub mod scan_progress;
 pub mod share;
 mod summary;
+mod theme;
 
 use crate::cli::Args;
 use crate::disk::free_bytes;
-use crate::model::Item;
+use crate::model::{Category, Item};
 use crate::scan::ScanContext;
 use crate::session;
 use std::io;
 
 const CANCEL_MESSAGE: &str = "Diet postponed. Nothing was deleted.";
 const NOTHING_TO_TRIM: &str = "Nothing to trim. Your disk is already lean.";
+const NOTHING_IN_CHOSEN: &str = "Nothing to trim in the categories you chose.";
 const NOTHING_SELECTED: &str = "Nothing selected. Your disk stays exactly as it is.";
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     if args.report {
         return report::run(&args);
     }
+    theme::install();
     match interactive(&args) {
         Err(error) if is_interrupt(&error) => {
             cliclack::outro_cancel(CANCEL_MESSAGE)?;
             Ok(())
         }
         other => other,
+    }
+}
+
+fn nothing_found_message(only: &[Category]) -> &'static str {
+    if only.is_empty() {
+        NOTHING_TO_TRIM
+    } else {
+        NOTHING_IN_CHOSEN
     }
 }
 
@@ -42,12 +57,15 @@ fn interactive(args: &Args) -> anyhow::Result<()> {
     notices::show_intro(args, free_bytes(&home)?, low_space_gb)?;
     let (ctx, items) = notices::scan_with_spinner(home, config, &args.only);
     if items.is_empty() {
-        cliclack::outro(NOTHING_TO_TRIM)?;
+        cliclack::outro(nothing_found_message(&args.only))?;
         return Ok(());
     }
     summary::show_summary(&items)?;
     notices::docker_note(&ctx, &items, &args.only)?;
-    let chosen = pick::pick_all(&items)?;
+    let Some(chosen) = pick::choose(&items)? else {
+        cliclack::outro_cancel(CANCEL_MESSAGE)?;
+        return Ok(());
+    };
     let selected: Vec<&Item> = chosen.iter().map(|&index| &items[index]).collect();
     execute_selection(args, &ctx, &selected)
 }

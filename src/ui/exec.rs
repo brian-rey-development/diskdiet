@@ -1,3 +1,5 @@
+use super::entries::display_label;
+use super::layout::{fit, progress_message_budget, terminal_width};
 use crate::actions;
 use crate::fmt::count_noun;
 use crate::model::{Action, Item, Outcome, RunMode};
@@ -8,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const RANK_EMPTY_TRASH: u8 = 0;
 const RANK_NORMAL: u8 = 1;
 const RANK_VM_TRIM: u8 = 2;
+const PROGRESS_TEMPLATE: &str = "{bar:20.magenta} {pos}/{len} [{elapsed_precise}] {msg}";
 const INTERRUPT_EXIT_CODE: i32 = 130;
 const OWNER_RUNNING: &str = "its app is running, quit it and run diskdiet again";
 const OWNER_UNKNOWN: &str =
@@ -72,11 +75,12 @@ pub(crate) fn execute_all<'a>(
     mode: RunMode,
 ) -> Vec<Executed<'a>> {
     let _ = ctrlc::set_handler(on_interrupt);
-    let bar = cliclack::progress_bar(items.len() as u64);
+    let bar = cliclack::progress_bar(items.len() as u64).with_template(PROGRESS_TEMPLATE);
+    let budget = progress_message_budget(terminal_width());
     bar.start(progress_label(mode));
     let mut executed = Vec::with_capacity(items.len());
     for item in execution_order(items) {
-        bar.set_message(&item.label);
+        bar.set_message(fit(&display_label(item), budget));
         let outcome = run_one(item, tools, mode);
         executed.push(Executed { item, outcome });
         bar.inc(1);

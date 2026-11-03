@@ -1,15 +1,19 @@
+use super::layout::{spinner_row_budget, terminal_width};
+use super::scan_progress::ScanProgress;
 use crate::cli::Args;
 use crate::config::Config;
 use crate::fmt::count_noun;
 use crate::model::{Category, Item, RunMode};
 use crate::process::run_stdout;
 use crate::scan::ScanContext;
-use crate::session::scan_with_tools;
+use crate::scan::{SCANNERS, ScannerReport};
+use crate::session::scan_with_tools_reporting;
 use crate::size::format_bytes;
 use crate::tools;
 use console::style;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 const WEIGHING: &str = "Weighing your disk...";
@@ -46,7 +50,14 @@ pub(super) fn scan_with_spinner(
 ) -> (ScanContext, Vec<Item>) {
     let spinner = cliclack::spinner();
     spinner.start(WEIGHING);
-    let (ctx, items) = scan_with_tools(home, config, only);
+    let progress = Mutex::new(ScanProgress::new(SCANNERS.len(), only));
+    let width = spinner_row_budget(terminal_width());
+    let on_finished = |report: ScannerReport<'_>| {
+        let mut progress = progress.lock().unwrap_or_else(PoisonError::into_inner);
+        progress.record(report.items);
+        spinner.set_message(progress.line(width));
+    };
+    let (ctx, items) = scan_with_tools_reporting(home, config, only, &on_finished);
     let total: u64 = items.iter().map(|item| item.bytes).sum();
     spinner.stop(found_summary(total, items.len()));
     (ctx, items)

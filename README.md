@@ -49,7 +49,9 @@ diskdiet --no-share            # skip the share card at the end
 
 Start with `diskdiet --dry-run`. You get the same scan and the same prompts, every action reports "dry run" instead of running, and the last screen tells you how much could go instead of how much went.
 
-The interactive flow is short. diskdiet weighs your disk in parallel, shows a summary ("You can lose up to 46.9 GB"), then opens one multiselect per category. Safe items come preselected, risky ones come unselected and flagged. After a final confirmation it executes the selection, measures the free space again, and prints how much you really got back.
+The interactive flow is short. diskdiet weighs your disk in parallel while a live line shows how many scanners have finished and the running total per category, then shows a summary ("You can lose up to 46.9 GB") and opens one multiselect per category. Safe items come preselected, risky ones come unselected and flagged, and the item under the cursor shows its full detail on a line of its own, cut to the width of your terminal so nothing wraps. Lists longer than ten items switch on type-to-filter, and worktrees are grouped by repository, so a row reads `acme-app › fix-login-redirect`.
+
+Once you have been through every category, a review screen lists everything you selected, grouped by category, with a subtotal for each and a grand total. From there you can continue, cancel, or pick a category and go back into its list with your current selection still ticked. A dangerous worktree asks for its typed confirmation as soon as you leave the list where you ticked it, and again if you deselect it and select it again in a later edit. After the review comes a final yes or no, then diskdiet executes the selection, measures the free space again, and prints how much you really got back.
 
 ## What it finds
 
