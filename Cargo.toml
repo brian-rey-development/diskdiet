@@ -1,0 +1,41 @@
+[package]
+name = "diskdiet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Your AI agents made your disk fat. Put it on a diet. An interactive, developer-aware disk cleaner for macOS."
+license = "MIT"
+readme = "README.md"
+keywords = ["disk", "cleanup", "macos", "worktree", "cli"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+cliclack = "0.5.7"
+console = "0.16.6"
+ctrlc = "3.5.2"
+libc = "0.2.191"
+rayon = "1.12.0"
+rustix = { version = "1.1.6", features = ["fs"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+too_many_lines = "deny"
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
