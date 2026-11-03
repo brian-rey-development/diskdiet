@@ -6,10 +6,10 @@
 Output docs/demo.gif
 
 Set Shell "zsh"
-Set FontSize 16
+Set FontSize 15
 Set FontFamily "Menlo"
 Set Width 1400
-Set Height 1000
+Set Height 1200
 Set Padding 24
 Set Theme "Catppuccin Latte"
 Set TypingSpeed 50ms
@@ -64,13 +64,11 @@ Space
 Sleep 1s
 Enter
 
-Wait+Screen@10s /Total · 4 items/
-Sleep 2.5s
+Sleep 3s
 Enter
 
-Wait+Screen@10s /Continue\?/
-Sleep 1s
+Sleep 2s
 Type "y"
 
-Wait+Screen@30s /Dry run complete/
+Sleep 3s
 Sleep 4s
