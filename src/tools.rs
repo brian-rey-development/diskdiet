@@ -23,7 +23,7 @@ pub const KNOWN_TOOLS: [&str; 11] = [
 ];
 
 const EXEC_BITS: u32 = 0o111;
-const FALLBACK_SHELL: &str = "/bin/zsh";
+const FALLBACK_SHELL: &str = "/bin/sh";
 const SHELL_FLAGS: &str = "-lic";
 const MISE: &str = "mise";
 const MISE_FIXED_LOCATIONS: [&str; 2] = ["/opt/homebrew/bin/mise", "/usr/local/bin/mise"];

@@ -61,7 +61,12 @@ const STATUS_PATH_OFFSET: usize = 3;
 const MAX_WALK_DEPTH: usize = 8;
 const UNKNOWN_AHEAD: u32 = 1;
 const DELETE_WORD: &str = "delete";
-const VOLUMES_DIR: &str = "/Volumes";
+const MOUNT_ROOTS: [(&str, usize); 4] = [
+    ("/Volumes", 1),
+    ("/run/media", 2),
+    ("/media", 2),
+    ("/mnt", 1),
+];
 const BRANCH_REF_PREFIX: &str = "refs/heads/";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -316,11 +321,20 @@ pub fn find_repos(roots: &[PathBuf], exclude: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 pub fn volume_is_mounted(path: &Path) -> bool {
-    let Ok(rest) = path.strip_prefix(VOLUMES_DIR) else {
-        return true;
-    };
-    let volume = rest.components().next();
-    volume.is_none_or(|name| Path::new(VOLUMES_DIR).join(name).exists())
+    for (root, depth) in MOUNT_ROOTS {
+        let Ok(rest) = path.strip_prefix(root) else {
+            continue;
+        };
+        let parts: Vec<_> = rest.components().take(depth).collect();
+        if parts.len() < depth {
+            return true;
+        }
+        return parts
+            .iter()
+            .fold(PathBuf::from(root), |acc, part| acc.join(part))
+            .exists();
+    }
+    true
 }
 
 fn folder_is_missing(entry: &WorktreeEntry) -> bool {

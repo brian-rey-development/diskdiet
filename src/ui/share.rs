@@ -1,3 +1,4 @@
+use crate::platform::MACHINE;
 use crate::size::format_bytes;
 use console::{measure_text_width, style};
 
@@ -9,7 +10,7 @@ const CARD_TAGLINE: &str = "Put your disk on a diet.";
 
 pub fn tweet_text(freed_label: &str) -> String {
     format!(
-        "I just freed {freed_label} on my Mac with diskdiet. My AI agents had been hoarding build artifacts.\n\n{REPO_URL}"
+        "I just freed {freed_label} on my {MACHINE} with diskdiet. My AI agents had been hoarding build artifacts.\n\n{REPO_URL}"
     )
 }
 

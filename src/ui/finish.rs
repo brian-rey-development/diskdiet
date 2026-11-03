@@ -3,6 +3,7 @@ use super::share;
 use crate::cli::Args;
 use crate::disk::free_bytes;
 use crate::model::{Action, Outcome};
+use crate::platform::IS_MACOS;
 use crate::size::format_bytes;
 use console::style;
 use std::path::Path;
@@ -12,6 +13,8 @@ const PERCENT: f64 = 100.0;
 const MIN_CELEBRATED_BYTES: u64 = 1_000_000;
 const DONE: &str = "Done.";
 const TRASH_HINT: &str = "Done. Items moved to the Trash free their space once you empty it.";
+const PERMISSION_STEPS: &str = "Some items belong to another user or sit in a read-only folder.\n\
+Check their owner with ls -l, then remove them by hand if you are sure.";
 const FDA_STEPS: &str = "macOS blocked some items.\n\
 1. Open System Settings > Privacy & Security > Full Disk Access\n\
 2. Switch on your terminal app\n\
@@ -95,7 +98,12 @@ fn report_problems(executed: &[Executed]) -> std::io::Result<()> {
         .iter()
         .any(|e| e.outcome == Outcome::NeedsFullDiskAccess);
     if blocked {
-        cliclack::note("Full Disk Access needed", FDA_STEPS)?;
+        let (title, steps) = if IS_MACOS {
+            ("Full Disk Access needed", FDA_STEPS)
+        } else {
+            ("Permission denied", PERMISSION_STEPS)
+        };
+        cliclack::note(title, steps)?;
     }
     Ok(())
 }

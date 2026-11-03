@@ -12,7 +12,9 @@ src/
   model.rs         Category, Risk, Action, Item, Outcome (the shared contract)
   config.rs        Config with defaults, TOML load, default_dev_roots
   size/mod.rs      disk_usage (parallel, allocated bytes, inode dedupe), format_bytes
-  size/bulk.rs     getattrlistbulk directory reader, the only module allowed unsafe
+  size/bulk.rs     getattrlistbulk directory reader (macOS only), the only module allowed unsafe
+  platform.rs      per-OS paths: log, Trash, app caches
+  freedesktop_trash.rs  move to and empty the Linux Trash per the freedesktop.org spec
   disk.rs          free_bytes via statvfs
   tools.rs         Tools::discover resolves external programs once, in parallel
   log.rs           append-only action log
@@ -44,7 +46,7 @@ A run has five stages, and each one hands plain data to the next.
 
 **3. Select.** The UI groups items by `Category::ALL`, shows a summary, and opens one multiselect per non-empty category. Items marked `preselected` start ticked. Items with `typed_confirmation` ask the user to type the word, and are skipped if it does not match. A final confirmation, which defaults to no, closes the step. With `--report` this stage is replaced by a printed table or JSON.
 
-**4. Execute.** Each selected item goes through `actions::execute(item, tools, dry_run)`. With `dry_run` set, the function returns `Outcome::DryRun` before touching anything. Otherwise it deletes a path, moves it to the Trash through Finder, runs the owning tool's own cleanup command, or removes a worktree with git, and the outcome is appended to `~/Library/Logs/diskdiet.log`. The Docker VM trim is ordered last, because it can only return space that the prunes have already released.
+**4. Execute.** Each selected item goes through `actions::execute(item, tools, dry_run)`. With `dry_run` set, the function returns `Outcome::DryRun` before touching anything. Otherwise it deletes a path, moves it to the Trash (through Finder on macOS, through the freedesktop.org layout on Linux), runs the owning tool's own cleanup command, or removes a worktree with git, and the outcome is appended to the log (`platform::log_path`). The Docker VM trim is ordered last, because it can only return space that the prunes have already released.
 
 **5. Measure.** `disk::free_bytes` reads the free space of the volume holding the home directory before the scan and again after execution. The difference is the number the user sees as "freed". No estimate is ever reported as a result.
 
@@ -68,6 +70,6 @@ Symlinks are never followed. Following one could count a target outside the fold
 
 ## Why the walker calls `getattrlistbulk` directly
 
-Scanning is bound by how fast the kernel can hand out file metadata, not by CPU, so the walker's job is to make as few system calls as possible. A portable walker calls `readdir` and then one `lstat` per entry. macOS has `getattrlistbulk`, which fills a 128 KB buffer with the name, type, inode, link count and allocated size of many entries in a single call, and on a 72 GB folder of projects it measured 9.5 seconds against 15.7 for the portable walker, with identical totals. The call needs `unsafe` FFI, so it lives alone in `size/bulk.rs`, where only `open`, `getattrlistbulk` and `close` are unsafe and the returned buffer is parsed through bounds-checked slices. If a parse fails or a file system rejects the call, that folder is read again with `read_dir` and `lstat`, and a test checks the result against `du` on a folder large enough to need several batches.
+Scanning is bound by how fast the kernel can hand out file metadata, not by CPU, so the walker's job is to make as few system calls as possible. A portable walker calls `readdir` and then one `lstat` per entry. On Linux diskdiet uses exactly that, spread over a rayon pool. macOS has `getattrlistbulk`, which fills a 128 KB buffer with the name, type, inode, link count and allocated size of many entries in a single call, and on a 72 GB folder of projects it measured 9.5 seconds against 15.7 for the portable walker, with identical totals. The call needs `unsafe` FFI, so it lives alone in `size/bulk.rs`, compiled only on macOS, where only `open`, `getattrlistbulk` and `close` are unsafe and the returned buffer is parsed through bounds-checked slices. If a parse fails or a file system rejects the call, that folder is read again with `read_dir` and `lstat`, and a test checks the result against `du` on a folder large enough to need several batches.
 
 The estimate is still an estimate, which is why the final figure is not computed from it. After execution diskdiet compares `statvfs` free space before and after, and that difference is what it reports.

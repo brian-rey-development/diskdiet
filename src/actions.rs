@@ -1,5 +1,7 @@
+use crate::freedesktop_trash;
 use crate::log;
 use crate::model::{Action, Item, Outcome};
+use crate::platform::{self, IS_MACOS};
 use crate::scan::worktrees::{local_changes, volume_is_mounted};
 use crate::tools::Tools;
 use std::io;
@@ -21,7 +23,17 @@ const WORKTREE_ADMIN_DIR: &str = ".git/worktrees";
 const GITDIR_FILE: &str = "gitdir";
 const UNPLUGGED_WORKTREE: &str =
     "a worktree of this repo is on a drive that is not plugged in, plug it in first";
-const SHARED_PARENTS: [&str; 2] = ["/users", "/volumes"];
+const SHARED_PARENTS: [&str; 6] = [
+    "/users",
+    "/volumes",
+    "/home",
+    "/media",
+    "/mnt",
+    "/run/media",
+];
+const NO_HOME: &str = "HOME is not set";
+const OTHER_DRIVE: &str =
+    "it is on another drive, so it cannot go to your Trash. Delete it by hand";
 
 pub fn execute(item: &Item, tools: &Tools, dry_run: bool) -> Outcome {
     if dry_run {
@@ -35,10 +47,8 @@ pub fn execute(item: &Item, tools: &Tools, dry_run: bool) -> Outcome {
 pub fn perform(action: &Action, tools: &Tools) -> Outcome {
     match action {
         Action::DeletePath(path) => guarded(path, delete_path),
-        Action::MoveToTrash(path) => {
-            guarded(path, |path| run_osascript(tools, &trash_script(path)))
-        }
-        Action::EmptyTrash => run_osascript(tools, EMPTY_TRASH_SCRIPT),
+        Action::MoveToTrash(path) => guarded(path, |path| move_to_trash(tools, path)),
+        Action::EmptyTrash => empty_trash(tools),
         Action::RunCommand { program, args } => run_command(program, args),
         Action::RemoveWorktree {
             repo,
@@ -146,6 +156,41 @@ fn guarded(path: &Path, run: impl FnOnce(&Path) -> Outcome) -> Outcome {
         return Outcome::Failed(format!("refusing to remove {}", path.display()));
     }
     run(path)
+}
+
+fn trash_outcome(result: io::Result<()>) -> Outcome {
+    match result {
+        Ok(()) => Outcome::Done,
+        Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
+            Outcome::Failed(OTHER_DRIVE.to_string())
+        }
+        Err(error) => io_outcome(&error),
+    }
+}
+
+fn move_to_trash(tools: &Tools, path: &Path) -> Outcome {
+    if IS_MACOS {
+        return run_osascript(tools, &trash_script(path));
+    }
+    let Some(home) = home() else {
+        return Outcome::Failed(NO_HOME.to_string());
+    };
+    let deleted_at = log::format_timestamp(log::now_secs()).replace(' ', "T");
+    trash_outcome(freedesktop_trash::move_to(
+        &platform::trash_dir(&home),
+        path,
+        &deleted_at,
+    ))
+}
+
+fn empty_trash(tools: &Tools) -> Outcome {
+    if IS_MACOS {
+        return run_osascript(tools, EMPTY_TRASH_SCRIPT);
+    }
+    let Some(home) = home() else {
+        return Outcome::Failed(NO_HOME.to_string());
+    };
+    trash_outcome(freedesktop_trash::empty(&platform::trash_dir(&home)))
 }
 
 fn delete_path(path: &Path) -> Outcome {

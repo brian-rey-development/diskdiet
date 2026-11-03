@@ -29,7 +29,7 @@ Usage: ./setup.sh [--uninstall] [--help]
 
 Builds diskdiet from source and installs it for the current user.
 
-  (no flags)   check macOS and Rust, build in release mode, install the binary
+  (no flags)   check the platform and Rust, build in release mode, install the binary
                to ${BIN_PATH}, and create ${CONFIG_PATH}
                if it does not exist
   --uninstall  remove the binary, and ask before removing ${CONFIG_DIR}
@@ -48,10 +48,13 @@ confirm() {
   [[ "${reply}" =~ ^[Yy]$ ]]
 }
 
-require_macos() {
+require_supported_platform() {
   step "Checking platform"
-  [[ "$(uname -s)" == "Darwin" ]] || die "diskdiet supports macOS only (found $(uname -s))."
-  ok "macOS $(sw_vers -productVersion 2>/dev/null || echo unknown)"
+  case "$(uname -s)" in
+    Darwin) ok "macOS $(sw_vers -productVersion 2>/dev/null || echo unknown)" ;;
+    Linux) ok "Linux $(uname -r)" ;;
+    *) die "diskdiet supports macOS and Linux (found $(uname -s))." ;;
+  esac
 }
 
 load_cargo_env() {
@@ -104,7 +107,7 @@ install_binary() {
   case ":${PATH}:" in
     *":${BIN_DIR}:"*) ;;
     *)
-      warn "${BIN_DIR} is not on your PATH. Add this line to ~/.zshrc and open a new terminal"
+      warn "${BIN_DIR} is not on your PATH. Add this line to your shell profile (~/.zshrc or ~/.bashrc) and open a new terminal"
       # shellcheck disable=SC2016
       printf '\n      export PATH="$HOME/.local/bin:$PATH"\n\n'
       ;;
@@ -153,7 +156,7 @@ uninstall() {
 }
 
 run_install() {
-  require_macos
+  require_supported_platform
   require_rust
   build_release
   install_binary

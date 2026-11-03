@@ -30,7 +30,7 @@ Minutes can pass between the scan and the deletion, and the agent that owns a wo
 
 ## 6. Worktrees whose folder is gone are pruned, not deleted
 
-Sometimes a worktree's folder has already been removed by hand or by a tool, but git still lists it. There is nothing to delete, so diskdiet creates one `git worktree prune` item per repo, with size zero and risk `Safe`. `git worktree prune` also forgets worktrees on an external drive that is not plugged in, so no prune item is offered for a repo with a worktree on an unmounted volume, and removing a single worktree never runs a prune. It is shown with zero bytes, because the point is to clean git's bookkeeping, not to free space. The other zero-byte item is the Colima disk trim, which frees nothing itself but hands the space Docker released back to macOS.
+Sometimes a worktree's folder has already been removed by hand or by a tool, but git still lists it. There is nothing to delete, so diskdiet creates one `git worktree prune` item per repo, with size zero and risk `Safe`. `git worktree prune` also forgets worktrees on an external drive that is not plugged in, so no prune item is offered for a repo with a worktree on an unmounted volume (under `/Volumes` on macOS, or `/media`, `/run/media` and `/mnt` on Linux), and removing a single worktree never runs a prune. It is shown with zero bytes, because the point is to clean git's bookkeeping, not to free space. The other zero-byte item is the Colima disk trim, which frees nothing itself but hands the space Docker released back to macOS.
 
 ## 7. Worktrees can live anywhere
 
@@ -42,7 +42,7 @@ Starting a container runtime to look at its disk usage is a side effect the user
 
 ## 9. Permission errors are expected, and explained
 
-macOS protects some locations on purpose. Deleting inside `~/.Trash` needs Full Disk Access, and root-owned apps such as iMovie cannot be moved with plain file APIs. This was found by trying it. So moving to the Trash and emptying it go through Finder, which has the rights, and if a plain delete fails with a permission error diskdiet reports `NeedsFullDiskAccess` and prints where to grant access (System Settings > Privacy & Security > Full Disk Access) instead of a cryptic failure.
+macOS protects some locations on purpose. Deleting inside `~/.Trash` needs Full Disk Access, and root-owned apps such as iMovie cannot be moved with plain file APIs. This was found by trying it. So moving to the Trash and emptying it go through Finder, which has the rights, and if a plain delete fails with a permission error diskdiet reports `NeedsFullDiskAccess` and prints where to grant access (System Settings > Privacy & Security > Full Disk Access) instead of a cryptic failure. On Linux there is no Finder and no Full Disk Access. The Trash is the freedesktop.org one in `~/.local/share/Trash`, written in the same layout file managers use so anything diskdiet trashed can be restored from them, and a permission error is reported as such with a hint to check the owner. A file on another drive cannot be renamed into the home Trash, so diskdiet reports that instead of copying it.
 
 ## 10. Regenerable data is removed in a way that frees space now
 
@@ -66,7 +66,7 @@ Every executed action is appended to `~/Library/Logs/diskdiet.log` with a timest
 
 ## 15. Some paths can never be deleted
 
-Every delete and every move to the Trash passes one guard first, whatever scanner produced it and whatever the config says. It refuses relative paths and paths with `..`, your home folder, any folder that contains it (`/Users`, `/`), anything directly inside your home folder (`~/Documents`, `~/.cache`, `~/Library`), and anything directly inside `/Users` or `/Volumes`. The case is ignored, because macOS volumes usually ignore it too. So a config line such as `extra_cache_dirs = ["~"]` produces no item at all, instead of a preselected home folder.
+Every delete and every move to the Trash passes one guard first, whatever scanner produced it and whatever the config says. It refuses relative paths and paths with `..`, your home folder, any folder that contains it (`/Users`, `/`), anything directly inside your home folder (`~/Documents`, `~/.cache`, `~/Library`), and anything directly inside `/Users`, `/home`, `/Volumes`, `/media`, `/run/media` or `/mnt`. The case is ignored, because macOS volumes usually ignore it too, and on Linux that only makes the guard stricter. So a config line such as `extra_cache_dirs = ["~"]` produces no item at all, instead of a preselected home folder.
 
 ## 16. Context can only make an item riskier
 

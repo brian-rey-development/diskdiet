@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 const DOWNLOADS_DIR: &str = "Downloads";
 const SECS_PER_DAY: u64 = 86_400;
-const INSTALLER_EXTENSIONS: [&str; 3] = ["dmg", "pkg", "iso"];
+const INSTALLER_EXTENSIONS: [&str; 6] = ["dmg", "pkg", "iso", "deb", "rpm", "appimage"];
 const INSTALLER_GRACE_DAYS: u64 = 7;
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {

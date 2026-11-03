@@ -2,6 +2,7 @@ use super::ScanContext;
 use super::builds::tilde_path;
 use crate::actions::is_safe_delete_target;
 use crate::model::{Action, Category, Item, Risk};
+use crate::platform::{IS_MACOS, app_caches_dir};
 use crate::size::disk_usage;
 use crate::tools::run_with_deadline;
 use rayon::prelude::*;
@@ -12,23 +13,24 @@ use std::time::Duration;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const MIN_APP_CACHE_BYTES: u64 = 50_000_000;
-const APP_CACHES_DIR: &str = "Library/Caches";
 const APPLE_CACHE_PREFIX: &str = "com.apple.";
 const UPDATER_SUFFIX: &str = "-updater";
 const REGENERABLE_NOTE: &str = "Re-downloaded on demand";
 
-const EXCLUDED_NAMES: [&str; 8] = [
+const EXCLUDED_NAMES: [&str; 10] = [
     "CloudKit",
     "GeoServices",
     "pip",
     "Yarn",
+    "yarn",
     "go-build",
     "Homebrew",
     "pnpm",
     "uv",
+    "huggingface",
 ];
 
-const SAFE_NAMES: [&str; 7] = [
+const SAFE_NAMES: [&str; 11] = [
     "ms-playwright",
     "electron",
     "electron-builder",
@@ -36,55 +38,78 @@ const SAFE_NAMES: [&str; 7] = [
     "Google",
     "Firefox",
     "Steam",
+    "google-chrome",
+    "chromium",
+    "mozilla",
+    "thumbnails",
 ];
 
-const RUNNING_OWNERS: [(&str, &str); 3] = [
+const RUNNING_OWNERS: [(&str, &str); 7] = [
     ("Google", "/Google Chrome.app/"),
     ("Firefox", "/Firefox.app/"),
     ("Steam", "/Steam.app/"),
+    ("google-chrome", "chrome"),
+    ("chromium", "chromium"),
+    ("mozilla", "firefox"),
+    ("mozilla", "firefox-bin"),
 ];
 const PATH_OWNERS: [(&str, &str); 1] = [("Library/Developer/Xcode/DerivedData", "/Xcode.app/")];
 const OWNER_RUNNING_NOTE: &str = "Its app is running, quit it first";
-const PS: &str = "/bin/ps";
-const PS_ARGS: [&str; 2] = ["-axo", "comm="];
+const PS: &str = "ps";
+const PS_ARGS: [&str; 3] = ["-A", "-o", "comm="];
 
 struct PathCache {
     label: &'static str,
-    rel: &'static str,
+    mac: Option<&'static str>,
+    linux: Option<&'static str>,
+}
+
+impl PathCache {
+    fn rel(&self) -> Option<&'static str> {
+        if IS_MACOS { self.mac } else { self.linux }
+    }
 }
 
 const PATH_CACHES: [PathCache; 8] = [
     PathCache {
         label: "npm cache",
-        rel: ".npm/_cacache",
+        mac: Some(".npm/_cacache"),
+        linux: Some(".npm/_cacache"),
     },
     PathCache {
         label: "Cargo registry cache",
-        rel: ".cargo/registry/cache",
+        mac: Some(".cargo/registry/cache"),
+        linux: Some(".cargo/registry/cache"),
     },
     PathCache {
         label: "pip cache",
-        rel: "Library/Caches/pip",
+        mac: Some("Library/Caches/pip"),
+        linux: Some(".cache/pip"),
     },
     PathCache {
         label: "Bun install cache",
-        rel: ".bun/install/cache",
+        mac: Some(".bun/install/cache"),
+        linux: Some(".bun/install/cache"),
     },
     PathCache {
         label: "Yarn cache",
-        rel: "Library/Caches/Yarn",
+        mac: Some("Library/Caches/Yarn"),
+        linux: Some(".cache/yarn"),
     },
     PathCache {
         label: "Gradle caches",
-        rel: ".gradle/caches",
+        mac: Some(".gradle/caches"),
+        linux: Some(".gradle/caches"),
     },
     PathCache {
         label: "Go build cache",
-        rel: "Library/Caches/go-build",
+        mac: Some("Library/Caches/go-build"),
+        linux: Some(".cache/go-build"),
     },
     PathCache {
         label: "Xcode DerivedData",
-        rel: "Library/Developer/Xcode/DerivedData",
+        mac: Some("Library/Developer/Xcode/DerivedData"),
+        linux: None,
     },
 ];
 
@@ -143,7 +168,7 @@ pub fn owner_is_running_now(item: &Item) -> bool {
 pub fn path_owner_is_running(path: &Path, processes: &str) -> bool {
     PATH_OWNERS
         .iter()
-        .any(|(rel, marker)| path.ends_with(rel) && processes.contains(marker))
+        .any(|(rel, marker)| path.ends_with(rel) && process_matches(processes, marker))
 }
 
 pub fn app_cache_risk(name: &str) -> Option<Risk> {
@@ -158,10 +183,22 @@ pub fn app_cache_risk(name: &str) -> Option<Risk> {
     })
 }
 
+// macOS lists full executable paths, so markers there are path fragments. Linux lists bare names.
+pub fn process_matches(processes: &str, marker: &str) -> bool {
+    if marker.starts_with('/') {
+        return processes.contains(marker);
+    }
+    let suffix = format!("/{marker}");
+    processes
+        .lines()
+        .map(str::trim)
+        .any(|line| line == marker || line.ends_with(&suffix))
+}
+
 pub fn owner_is_running(name: &str, processes: &str) -> bool {
     RUNNING_OWNERS
         .iter()
-        .any(|(cache, marker)| *cache == name && processes.contains(marker))
+        .any(|(cache, marker)| *cache == name && process_matches(processes, marker))
 }
 
 pub fn app_cache_risk_now(name: &str, processes: &str) -> Option<Risk> {
@@ -212,7 +249,7 @@ fn package_caches(ctx: &ScanContext, processes: &str) -> Vec<Item> {
         .par_iter()
         .filter_map(|spec| command_cache_item(ctx, spec));
     let paths = PATH_CACHES.par_iter().filter_map(|spec| {
-        let path = ctx.home.join(spec.rel);
+        let path = ctx.home.join(spec.rel()?);
         let risk = path_cache_risk(&path, processes);
         path_cache_item(ctx, path, spec.label.to_string(), risk)
     });
@@ -288,7 +325,7 @@ fn clean_action(tool: &Path, spec: &CommandCache) -> Action {
 }
 
 fn app_caches(ctx: &ScanContext, processes: &str) -> Vec<Item> {
-    let Ok(entries) = fs::read_dir(ctx.home.join(APP_CACHES_DIR)) else {
+    let Ok(entries) = fs::read_dir(app_caches_dir(&ctx.home)) else {
         return Vec::new();
     };
     let candidates: Vec<(PathBuf, Risk)> = entries

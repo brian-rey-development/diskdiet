@@ -4,7 +4,7 @@ Thanks for helping. diskdiet deletes files on people's machines, so the bar for 
 
 ## Setup
 
-You need macOS and a stable Rust toolchain (the repo pins `stable` with `rustfmt` and `clippy` in `rust-toolchain.toml`).
+You need macOS or Linux and a stable Rust toolchain (the repo pins `stable` with `rustfmt` and `clippy` in `rust-toolchain.toml`).
 
 ```sh
 git clone https://github.com/brian-rey-development/diskdiet.git
@@ -23,7 +23,7 @@ To see where scan time goes, run `cargo run --release --example profile`. It run
 ./scripts/check.sh
 ```
 
-It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. All three must pass.
+It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. All three must pass, and CI runs them on both macOS and Ubuntu. To lint the other platform from your machine, add its target with `rustup target add` and run `cargo clippy --target <triple> --all-targets`.
 
 ## Code standards
 
@@ -47,7 +47,7 @@ When you are unsure whether something is safe to preselect, leave it unselected.
 
 ## Reporting bugs
 
-Include your macOS version, the command you ran, and the relevant lines from `~/Library/Logs/diskdiet.log`. For anything where diskdiet offered or removed something it should not have, see the end of [docs/SAFETY.md](docs/SAFETY.md).
+Include your OS and version, the command you ran, and the relevant lines from the log (`~/Library/Logs/diskdiet.log` on macOS, `~/.local/state/diskdiet/diskdiet.log` on Linux). For anything where diskdiet offered or removed something it should not have, see the end of [docs/SAFETY.md](docs/SAFETY.md).
 
 ## License
 

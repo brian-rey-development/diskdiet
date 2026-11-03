@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 mod bulk;
 
 use rayon::prelude::*;
@@ -18,7 +19,7 @@ const FIRST_DECIMAL_UNIT: usize = 2;
 type InodeKey = (u64, u64);
 
 enum Node {
-    Dir(PathBuf),
+    Dir(PathBuf, u64),
     File {
         bytes: u64,
         shared: Option<InodeKey>,
@@ -54,7 +55,7 @@ impl Tally {
 
 fn node_of(path: PathBuf, meta: &Metadata) -> Node {
     if meta.is_dir() {
-        return Node::Dir(path);
+        return Node::Dir(path, meta.blocks() * BLOCK_BYTES);
     }
     let shared = (meta.nlink() > 1).then_some((meta.dev(), meta.ino()));
     Node::File {
@@ -74,10 +75,16 @@ fn read_dir_nodes(dir: &Path) -> io::Result<Vec<Node>> {
     Ok(nodes)
 }
 
+#[cfg(target_os = "macos")]
 fn children(dir: &Path) -> Vec<Node> {
     bulk::list(dir)
         .or_else(|_| read_dir_nodes(dir))
         .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn children(dir: &Path) -> Vec<Node> {
+    read_dir_nodes(dir).unwrap_or_default()
 }
 
 fn tally_dir(dir: &Path) -> Tally {
@@ -85,7 +92,10 @@ fn tally_dir(dir: &Path) -> Tally {
     let mut subdirs = Vec::new();
     for node in children(dir) {
         match node {
-            Node::Dir(path) => subdirs.push(path),
+            Node::Dir(path, bytes) => {
+                own.add(bytes, None);
+                subdirs.push(path);
+            }
             Node::File { bytes, shared } => own.add(bytes, shared),
         }
     }
@@ -101,7 +111,11 @@ fn tally_root(path: &Path) -> Tally {
         return Tally::default();
     };
     match node_of(path.to_path_buf(), &meta) {
-        Node::Dir(dir) => tally_dir(&dir),
+        Node::Dir(dir, bytes) => {
+            let mut tally = tally_dir(&dir);
+            tally.add(bytes, None);
+            tally
+        }
         Node::File { bytes, shared } => {
             let mut tally = Tally::default();
             tally.add(bytes, shared);

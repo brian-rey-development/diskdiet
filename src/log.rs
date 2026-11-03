@@ -3,7 +3,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const LOG_RELATIVE_PATH: &str = "Library/Logs/diskdiet.log";
 const SECS_PER_DAY: u64 = 86_400;
 const SECS_PER_HOUR: u64 = 3_600;
 const SECS_PER_MINUTE: u64 = 60;
@@ -11,7 +10,7 @@ const DAYS_FROM_CIVIL_EPOCH_SHIFT: u64 = 719_468;
 const DAYS_PER_ERA: u64 = 146_097;
 
 pub fn log_path(home: &Path) -> PathBuf {
-    home.join(LOG_RELATIVE_PATH)
+    crate::platform::log_path(home)
 }
 
 // Howard Hinnant's civil_from_days, valid for dates on or after 1970-01-01.
@@ -42,7 +41,7 @@ pub fn format_timestamp(unix_secs: u64) -> String {
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
 }
 
-fn now_secs() -> u64 {
+pub fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())

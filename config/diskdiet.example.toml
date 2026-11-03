@@ -13,7 +13,7 @@ exclude = []
 # Extra cache folders to offer as Safe, preselected items (for example ["~/.cache/my-tool"]).
 extra_cache_dirs = []
 
-# Apps with no sign of use for this many days (Spotlight or app data) are offered for the Trash.
+# macOS only. Apps with no sign of use for this many days (Spotlight or app data) are offered for the Trash.
 stale_app_days = 90
 
 # Files in the top level of ~/Downloads older than this many days are offered for review.

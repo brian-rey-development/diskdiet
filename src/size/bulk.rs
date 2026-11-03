@@ -158,7 +158,7 @@ fn parse_entry(entry: &[u8], dir: &Path) -> Option<Node> {
     let objtype = cursor.u32()?;
     let inode = cursor.u64()?;
     if objtype == DIRECTORY_OBJTYPE {
-        return Some(Node::Dir(dir.join(OsStr::from_bytes(name))));
+        return Some(Node::Dir(dir.join(OsStr::from_bytes(name)), 0));
     }
     parse_file(&mut cursor, file, device, inode)
 }
