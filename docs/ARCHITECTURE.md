@@ -1,93 +1,97 @@
 # Architecture
 
-diskdiet is a single Rust binary with a small library behind it. The library is split so that everything that decides what is junk (the scanners) is separate from everything that touches the disk destructively (`actions/`), and both talk through one shared vocabulary in `model.rs`. That split is what makes the safety rules testable, because a scanner can be checked against a fixture folder without ever being able to delete it.
+diskdiet is a single Rust binary with a small library behind it. The library is split so that everything that decides what is junk (the scanners) is separate from everything that touches the disk destructively (`features/actions/`), and both talk through one shared vocabulary in `domain/model.rs`. That split is what makes the safety rules testable, because a scanner can be checked against a fixture folder without ever being able to delete it.
 
 ## Module map
 
+`src/` has four top-level folders, one per layer, and imports only point downward through them.
+
 ```
 src/
-  main.rs               parse Args, init the thread pool, call ui::run
-  lib.rs                module list
-  cli.rs                clap Args (help text lives in #[arg(help = ...)])
-  model.rs              Category, Risk, Action, Item, Outcome, RunMode (the shared contract)
-  session.rs            load settings, cap the rayon pool, discover tools and run the scanners
+  main.rs                 parse Args, init the thread pool, call app::ui::run
+  lib.rs                  the four layers
 
-  time.rs               clock helpers, calendar math, format_timestamp
-  fmt.rs                format_age, tilde_path, parse_size, count_noun and plural_s
-  fsutil.rs             lowercased, child_dirs, canonical_or_self, remove_any
-  platform.rs           per-OS paths (log, Trash, app caches), home_dir, volume_is_mounted
-  config.rs             Config with defaults, TOML load, default_dev_roots, expand_tilde
-  disk.rs               free_bytes and total_bytes via statvfs
-  log.rs                append-only action log
-  process.rs            run_with_deadline, run_stdout and run_shielded (external commands)
+  app/                    wiring and the terminal, the only layer that sees everything
+    cli.rs                clap Args (help text lives in #[arg(help = ...)])
+    session.rs            load settings, cap the rayon pool, discover tools and run the scanners
+    ui/                   interactive flow and --report
+      mod.rs              run, interactive flow
+      notices.rs          intro, live scan spinner and Docker notices
+      scan_progress.rs    running totals per category and the spinner line
+      summary.rs          the per-category summary
+      entries.rs          per-category row order, worktree grouping, row labels, Selection
+      pick.rs             multiselects, typed confirmations and the review loop
+      review.rs           review screen, review and category prompts
+      layout.rs           terminal width and truncation helpers
+      theme.rs            cliclack theme that puts the item detail on its own line
+      exec.rs             execution order and progress
+      finish/             freed-space measurement, problems and the share card
+      report.rs           --report table and JSON
+      share.rs            share card and X intent URL
 
-  tools.rs              Tools::discover resolves external programs, PATH first
-  git/                  git program lookup and command builder, plus the pure parsers for its output
-    mod.rs              program lookup and the git command builder
-    porcelain.rs        parse_porcelain for git worktree list
-    status.rs           count_status, hidden edits and local_changes
-    ignored.rs          is_build_output, the allow-list of ignored files that are not user data
-  size/
-    mod.rs              disk_usage (parallel, allocated bytes, inode dedupe), format_bytes
-    bulk.rs             getattrlistbulk directory reader (macOS only), the only module allowed unsafe
-  safety.rs             is_safe_delete_target, the guard every deletion passes through
-  freedesktop_trash.rs  move to and empty the Linux Trash per the freedesktop.org spec
+  domain/                 what diskdiet believes, independent of how it scans or deletes
+    model.rs              Category, Risk, Action, Item, Outcome, RunMode (the shared contract)
+    safety.rs             is_safe_delete_target, the guard every deletion passes through
+    config.rs             Config with defaults, TOML load, default_dev_roots, expand_tilde
 
-  scan/                 decides what is junk, never deletes
-    mod.rs              ScanContext, Scanner, SCANNERS, scan_all, scan_with_progress (per-scanner callback)
-    pipeline.rs         size floor, exclusions, risk inheritance, sort order
-    support.rs          helpers shared by the scanners
-    worktrees/          agent worktrees and stale worktree records
-      mod.rs            scan, per-repo orchestration
-      discover.rs       find_repos under the dev roots
-      assess.rs         Assessment, risk_from_counts, base_branch
-      items.rs          turns assessments into Items
-    builds.rs           BuildArtifacts and PythonEnvs
-    caches/             PackageCaches and AppCaches
-      mod.rs            scan, one ps call shared by both halves
-      package.rs        package manager caches and extra_cache_dirs
-      app.rs            ~/Library/Caches and ~/.cache
-      owners.rs         is the owning app running right now
-    docker.rs
-    models.rs           Ollama and Hugging Face
-    apps.rs             unused apps, batched mdls
-    downloads.rs
-    trash.rs
-  actions/              the only code that mutates the disk
-    mod.rs              execute, perform, outcome logging
-    delete.rs           DeletePath
-    trash.rs            MoveToTrash and EmptyTrash
-    command.rs          RunCommand
-    worktree.rs         RemoveWorktree and PruneWorktrees
+  features/               the two halves of a run, which never import each other
+    scan/                 decides what is junk, never deletes
+      mod.rs              ScanContext, Scanner, SCANNERS, scan_all, scan_with_progress
+      pipeline.rs         size floor, exclusions, risk inheritance, sort order
+      support.rs          helpers shared by the scanners
+      worktrees/          agent worktrees and stale worktree records
+        mod.rs            scan, per-repo orchestration
+        discover.rs       find_repos under the dev roots
+        assess.rs         Assessment, risk_from_counts, base_branch
+        items.rs          turns assessments into Items
+      builds.rs           BuildArtifacts and PythonEnvs
+      caches/             PackageCaches and AppCaches
+        mod.rs            scan, one ps call shared by both halves
+        package.rs        package manager caches and extra_cache_dirs
+        app.rs            ~/Library/Caches and ~/.cache
+        owners.rs         is the owning app running right now
+      docker.rs
+      models.rs           Ollama and Hugging Face
+      apps/               unused apps, batched mdls
+      downloads.rs
+      trash.rs
+    actions/              the only code that mutates the disk
+      mod.rs              execute, perform, outcome logging
+      delete.rs           DeletePath
+      trash.rs            MoveToTrash and EmptyTrash
+      command.rs          RunCommand
+      worktree.rs         RemoveWorktree and PruneWorktrees
 
-  ui/                   interactive flow and --report
-    mod.rs              run, interactive flow
-    notices.rs          intro, live scan spinner and Docker notices
-    scan_progress.rs    running totals per category and the spinner line
-    summary.rs          the per-category summary
-    entries.rs          per-category row order, worktree grouping, row labels, Selection
-    pick.rs             multiselects, typed confirmations and the review loop
-    review.rs           review screen, review and category prompts
-    layout.rs           terminal width and truncation helpers
-    theme.rs            cliclack theme that puts the item detail on its own line
-    exec.rs             execution order and progress
-    finish/             freed-space measurement, problems and the share card
-    report.rs           --report table and JSON
-    share.rs            share card and X intent URL
+  infra/                  the operating system, knows nothing about junk
+    fs/
+      paths.rs            lowercased, child_dirs, canonical_or_self, remove_any
+      disk.rs             free_bytes and total_bytes via statvfs
+      size/
+        mod.rs            disk_usage (parallel, allocated bytes, inode dedupe), format_bytes
+        bulk.rs           getattrlistbulk directory reader (macOS only), the only module allowed unsafe
+      freedesktop_trash.rs  move to and empty the Linux Trash per the freedesktop.org spec
+    sys/
+      process.rs          run_with_deadline, run_stdout and run_shielded (external commands)
+      tools.rs            Tools::discover resolves external programs, PATH first
+      platform.rs         per-OS paths (log, Trash, app caches), home_dir, volume_is_mounted
+      log.rs              append-only action log
+    git/                  git program lookup and command builder, plus the pure parsers for its output
+      mod.rs              program lookup and the git command builder
+      porcelain.rs        parse_porcelain for git worktree list
+      status.rs           count_status, hidden edits and local_changes
+      ignored.rs          is_build_output, the allow-list of ignored files that are not user data
+    util/
+      time.rs             clock helpers, calendar math, format_timestamp
+      fmt.rs              format_age, tilde_path, parse_size, count_noun and plural_s
 
 tests/
-  it/main.rs            the single integration test binary
-    support/            shared helpers: git fixtures, item and config builders, shared constants
-    size.rs  disk.rs  config.rs  log.rs  time.rs  fmt.rs  tools.rs  platform.rs
-    freedesktop_trash.rs  safety.rs
-    git/                porcelain, status, ignored
-    actions/            delete, command, trash, worktree, dry_run
-    scan/               pipeline, builds, docker, models, apps, downloads, caches
-    scan/worktrees/     assess, discover, scan, prune
-    ui/                 entries, exec, layout, notices, pick, report, review, scan_progress, share
+  it/main.rs              the single integration test binary, its tree mirrors src/
+    architecture.rs       enforces the layer rules below
+    support/              shared helpers: git fixtures, item and config builders, shared constants
+    app/  domain/  features/  infra/
 ```
 
-The modules form layers, and imports only point downward. The leaf modules (`time`, `fmt`, `fsutil`, `platform`, `config`, `disk`, `log`, `model` and `process`) depend on nothing above them. On top of those sit `tools`, `git`, `size`, `safety` and `freedesktop_trash`, which each wrap one external concern. `scan` and `actions` come next and never import each other, which is why a scanner cannot delete anything and an action cannot decide what is junk. Both read only the shared vocabulary in `model.rs`. `session`, `ui` and `cli` sit on top and wire everything together. The test tree mirrors this layout, so a test for `scan/worktrees/assess.rs` lives in `tests/it/scan/worktrees/assess.rs`.
+The direction is `app` to `features` to `domain` to `infra`, and `tests/it/architecture.rs` fails the build when a file imports upward. `infra` wraps one operating system concern per module and never mentions an `Item`, so it could be reused by another tool unchanged. `domain` holds the vocabulary and the rules that every other layer agrees on, and the only things it borrows from below are path helpers. Inside `features`, `scan` and `actions` never import each other, which is why a scanner cannot delete anything and an action cannot decide what is junk. `app` is the only layer allowed to see all the others, because its job is to wire them into one run. The same test also rejects grouped `use crate::{...}` imports and `super::super` paths, since both would hide a layer crossing from a plain text check. A test for `src/features/scan/worktrees/assess.rs` lives in `tests/it/features/scan/worktrees/assess.rs`.
 
 The contract lives in `model.rs`. A scanner returns `Vec<Item>`, where an `Item` has a `Category`, a `Risk` (`Safe`, `Review` or `Danger`), a measured size in bytes, a preselection flag, an optional typed confirmation word and an `Action` describing exactly what will happen. `actions::execute` turns an `Action` into an `Outcome` (`Done`, `DryRun`, `Skipped`, `Failed` or `NeedsFullDiskAccess`). Nothing else mutates the disk.
 
@@ -107,12 +111,12 @@ A run has five stages, and each one hands plain data to the next.
 
 ## How to add a scanner
 
-1. Create `src/scan/<name>.rs` with `pub fn scan(ctx: &ScanContext) -> Vec<Item>`. On any error, skip the item and keep going.
-2. Add the module in `src/scan/mod.rs` and add a `Scanner` entry (name, scan function) to `SCANNERS`.
-3. If your items need a new `Category`, add it to the enum, to `Category::ALL`, and to `title()` and `blurb()` in `model.rs`. Order in `ALL` is the order the user sees the prompts.
+1. Create `src/features/scan/<name>.rs` with `pub fn scan(ctx: &ScanContext) -> Vec<Item>`. On any error, skip the item and keep going.
+2. Add the module in `src/features/scan/mod.rs` and add a `Scanner` entry (name, scan function) to `SCANNERS`.
+3. If your items need a new `Category`, add it to the enum, to `Category::ALL`, and to `title()` and `blurb()` in `domain/model.rs`. Order in `ALL` is the order the user sees the prompts.
 4. Measure with `size::disk_usage`, never with file length or `du`. Pick the `Action` that makes the freed space real immediately (see rule 10 in [SAFETY.md](SAFETY.md)).
 5. Decide the risk honestly. Only items you can prove are regenerable are `Safe` and preselected. Anything that might hold user data is `Review` or `Danger` and starts unticked.
-6. Expose the pure decision logic (a classifier, a parser) as a `pub fn` so tests can call it without a real machine, and add fixture-based tests in `tests/it/scan/<name>.rs`, registered in `tests/it/scan/mod.rs`.
+6. Expose the pure decision logic (a classifier, a parser) as a `pub fn` so tests can call it without a real machine, and add fixture-based tests in `tests/it/features/scan/<name>.rs`, registered in `tests/it/features/scan/mod.rs`.
 7. If your scanner runs an external program, resolve it through `Tools`, and emit nothing when it is missing or not running.
 
 ## Why disk usage counts allocated bytes and dedupes inodes
@@ -125,6 +129,6 @@ Symlinks are never followed. Following one could count a target outside the fold
 
 ## Why the walker calls `getattrlistbulk` directly
 
-Scanning is bound by how fast the kernel can hand out file metadata, not by CPU, so the walker's job is to make as few system calls as possible. A portable walker calls `readdir` and then one `lstat` per entry. On Linux diskdiet uses exactly that, spread over a rayon pool. macOS has `getattrlistbulk`, which fills a 128 KB buffer with the name, type, inode, link count and allocated size of many entries in a single call, and on a 72 GB folder of projects it measured 9.5 seconds against 15.7 for the portable walker, with identical totals. The call needs `unsafe` FFI, so it lives alone in `size/bulk.rs`, compiled only on macOS, where only `open`, `getattrlistbulk` and `close` are unsafe and the returned buffer is parsed through bounds-checked slices. If a parse fails or a file system rejects the call, that folder is read again with `read_dir` and `lstat`, and a test checks the result against `du` on a folder large enough to need several batches.
+Scanning is bound by how fast the kernel can hand out file metadata, not by CPU, so the walker's job is to make as few system calls as possible. A portable walker calls `readdir` and then one `lstat` per entry. On Linux diskdiet uses exactly that, spread over a rayon pool. macOS has `getattrlistbulk`, which fills a 128 KB buffer with the name, type, inode, link count and allocated size of many entries in a single call, and on a 72 GB folder of projects it measured 9.5 seconds against 15.7 for the portable walker, with identical totals. The call needs `unsafe` FFI, so it lives alone in `infra/fs/size/bulk.rs`, compiled only on macOS, where only `open`, `getattrlistbulk` and `close` are unsafe and the returned buffer is parsed through bounds-checked slices. If a parse fails or a file system rejects the call, that folder is read again with `read_dir` and `lstat`, and a test checks the result against `du` on a folder large enough to need several batches.
 
 The estimate is still an estimate, which is why the final figure is not computed from it. After execution diskdiet compares `statvfs` free space before and after, and that difference is what it reports.
