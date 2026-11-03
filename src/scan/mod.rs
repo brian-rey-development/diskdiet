@@ -26,62 +26,43 @@ pub type ScanFn = fn(&ScanContext) -> Vec<Item>;
 
 pub struct Scanner {
     pub name: &'static str,
-    pub categories: &'static [Category],
     pub scan: ScanFn,
 }
 
 pub const SCANNERS: &[Scanner] = &[
     Scanner {
         name: "worktrees",
-        categories: &[Category::AgentWorktrees],
         scan: worktrees::scan,
     },
     Scanner {
         name: "builds",
-        categories: &[Category::BuildArtifacts, Category::PythonEnvs],
         scan: builds::scan,
     },
     Scanner {
         name: "caches",
-        categories: &[Category::PackageCaches, Category::AppCaches],
         scan: caches::scan,
     },
     Scanner {
         name: "docker",
-        categories: &[Category::Docker],
         scan: docker::scan,
     },
     Scanner {
         name: "models",
-        categories: &[Category::AiModels],
         scan: models::scan,
     },
     Scanner {
         name: "apps",
-        categories: &[Category::UnusedApps],
         scan: apps::scan,
     },
     Scanner {
         name: "downloads",
-        categories: &[Category::Downloads],
         scan: downloads::scan,
     },
     Scanner {
         name: "trash",
-        categories: &[Category::Trash],
         scan: trash::scan,
     },
 ];
-
-impl Scanner {
-    fn covers_any(&self, only: &[Category]) -> bool {
-        only.is_empty()
-            || self
-                .categories
-                .iter()
-                .any(|category| only.contains(category))
-    }
-}
 
 fn is_wanted(only: &[Category], category: Category) -> bool {
     only.is_empty() || only.contains(&category)
@@ -102,18 +83,18 @@ fn with_panics_logged<T>(home: &Path, work: impl FnOnce() -> T) -> T {
     result
 }
 
-pub(crate) fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
+pub fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
     with_panics_logged(&ctx.home, || scan_selected(ctx, only))
 }
 
 fn scan_selected(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
     let mut items: Vec<Item> = SCANNERS
         .par_iter()
-        .filter(|scanner| scanner.covers_any(only))
         .flat_map(|scanner| run_scanner(scanner.scan, ctx))
-        .filter(|item| is_wanted(only, item.category) && is_kept(item, &ctx.config.exclude))
+        .filter(|item| is_kept(item, &ctx.config.exclude))
         .collect();
     inherit_child_risk(&mut items);
+    items.retain(|item| is_wanted(only, item.category));
     items.sort_by(compare_items);
     items
 }

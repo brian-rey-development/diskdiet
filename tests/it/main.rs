@@ -6,6 +6,7 @@ mod freedesktop_trash;
 mod git;
 mod log;
 mod platform;
+mod process;
 mod safety;
 mod scan;
 mod size;

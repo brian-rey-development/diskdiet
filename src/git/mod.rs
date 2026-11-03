@@ -12,10 +12,10 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 const NO_FSMONITOR: [&str; 2] = ["-c", "core.fsmonitor=false"];
 
 pub(crate) fn program(tools: &Tools) -> &Path {
-    tools.get_or(tools::GIT, tools::GIT_FALLBACK)
+    tools.get_or(tools::GIT, tools::GIT)
 }
 
-fn command(git: &Path, dir: &Path, args: &[&str]) -> Command {
+pub(crate) fn command(git: &Path, dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(git);
     command
         .arg("-C")

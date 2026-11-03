@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The finish message printed the macOS log path on Linux, and now shows the real log location for each platform.
 - Counts of one now read "1 item" instead of "1 items" in the scan summary ("Found 1.2 GB across 1 item") and the execution progress ("Processed 1 item").
+- A worktree with an ignored `build/`, `dist/`, `target/`, `coverage/` or `.cache/` folder is no longer reported as Safe when that folder sits in a directory without a project manifest, because a folder such as `deploy/build/` can hold files like signing keys that exist nowhere else. These names are now excused only next to a `package.json`, `Cargo.toml`, `Makefile` or similar file.
+- The worktree prune guard no longer reads git's English output. It lists worktrees with `git worktree list --porcelain` under a timeout and skips the prune when the listing fails or when any worktree of the repo is on a drive that is not mounted, where before a failed or translated git message let the prune go ahead.
+- A mount point on Linux is now recognised by its device number, so an empty `/mnt/x` left behind after a drive is unplugged counts as not mounted instead of mounted.
+- The delete guard now refuses `/run/media`, `/run/media/USER` and the drives mounted below them (`/media/USER/LABEL`, `/run/media/USER/LABEL`, `/mnt/x`, `/Volumes/X`), where before only direct children of `/media` and `/run/media` were protected.
+- `--only` no longer hides risk. All scanners now run before the category filter, so a Safe cache folder that contains a worktree or an AI model is shown as Review or Danger even when you ask for a single category.
+- The check made right before deleting an app cache now skips the item when `ps` cannot be run, instead of treating an empty process list as "the app is not running".
+- Running external commands no longer waits forever when the exit watcher fails, and a command whose output pipe breaks is reported as failed instead of returning partial output as if it were complete.
 
 ## [0.1.0] - Unreleased
 

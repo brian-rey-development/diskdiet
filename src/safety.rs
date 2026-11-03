@@ -1,15 +1,9 @@
 use crate::fsutil::lowercased;
+use crate::platform::MOUNT_ROOTS;
 use std::path::{Component, Path};
 
 const MIN_DELETE_COMPONENTS: usize = 3;
-const SHARED_PARENTS: [&str; 6] = [
-    "/users",
-    "/volumes",
-    "/home",
-    "/media",
-    "/mnt",
-    "/run/media",
-];
+const SHARED_PARENTS: [&str; 2] = ["/users", "/home"];
 
 fn is_plain_absolute(path: &Path) -> bool {
     path.is_absolute()
@@ -31,8 +25,17 @@ fn is_shared_parent_child(path: &Path) -> bool {
         .any(|shared| parent.as_deref() == Some(Path::new(shared)))
 }
 
+fn is_mount_root_or_mount_point_or_above(path: &Path) -> bool {
+    let path = lowercased(path);
+    MOUNT_ROOTS.iter().any(|(root, depth)| {
+        path.strip_prefix(root.to_lowercase())
+            .is_ok_and(|rest| rest.components().count() <= *depth)
+    })
+}
+
 pub fn is_safe_delete_target(path: &Path, home: Option<&Path>) -> bool {
     is_plain_absolute(path)
         && !is_shared_parent_child(path)
+        && !is_mount_root_or_mount_point_or_above(path)
         && home.is_none_or(|home| !is_home_ancestor_or_direct_child(path, home))
 }

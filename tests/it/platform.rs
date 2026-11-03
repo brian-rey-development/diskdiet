@@ -1,5 +1,7 @@
-use diskdiet::platform::{self, IS_MACOS, volume_is_mounted};
+use anyhow::Result;
+use diskdiet::platform::{self, IS_MACOS, is_mount_point, volume_is_mounted};
 use std::path::Path;
+use tempfile::tempdir;
 
 #[test]
 fn drives_under_linux_mount_points_count_as_unplugged_when_missing() {
@@ -24,4 +26,20 @@ fn platform_paths_follow_each_system_convention() {
     }
     assert!(log.ends_with("diskdiet/diskdiet.log"));
     assert!(trash.ends_with("Trash"));
+}
+
+#[test]
+fn a_plain_folder_is_not_a_mount_point() -> Result<()> {
+    let temp = tempdir()?;
+    let folder = temp.path().join("not-a-mount");
+    std::fs::create_dir(&folder)?;
+    assert!(!is_mount_point(&folder));
+    assert!(!is_mount_point(&temp.path().join("missing")));
+    assert!(!is_mount_point(Path::new("/")));
+    Ok(())
+}
+
+#[test]
+fn a_separate_filesystem_is_a_mount_point() {
+    assert!(is_mount_point(Path::new("/dev")));
 }

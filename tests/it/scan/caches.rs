@@ -1,8 +1,9 @@
-use diskdiet::model::Risk;
+use diskdiet::model::{Action, Category, Item, Risk};
 use diskdiet::scan::caches::{
-    app_cache_risk, app_cache_risk_now, listing_has_process, named_owner_in, path_owner_in,
+    OwnerCheck, app_cache_risk, app_cache_risk_now, listing_has_process, named_owner_in,
+    owner_check_in, path_owner_in,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const CHROME_RUNNING: &str =
     "/sbin/launchd\n/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n";
@@ -53,4 +54,29 @@ fn a_running_app_turns_its_safe_cache_into_review() {
         Some(Risk::Safe)
     );
     assert_eq!(app_cache_risk_now("com.apple.foo", CHROME_RUNNING), None);
+}
+
+fn cache_item(label: &str, path: &str) -> Item {
+    let action = Action::DeletePath(PathBuf::from(path));
+    Item::new(Category::AppCaches, label, "", 1, Risk::Safe, action)
+}
+
+#[test]
+fn the_exec_time_owner_check_assumes_running_when_ps_is_unavailable() {
+    let chrome = cache_item("Google", "/Users/me/Library/Caches/Google");
+    assert_eq!(owner_check_in(&chrome, None), OwnerCheck::Unknown);
+    assert_eq!(
+        owner_check_in(&chrome, Some(CHROME_RUNNING)),
+        OwnerCheck::Running
+    );
+    assert_eq!(
+        owner_check_in(&chrome, Some("/sbin/launchd\n")),
+        OwnerCheck::Idle
+    );
+}
+
+#[test]
+fn items_without_an_owning_app_never_need_ps() {
+    let plain = cache_item("pip cache", "/Users/me/Library/Caches/pip");
+    assert_eq!(owner_check_in(&plain, None), OwnerCheck::Idle);
 }

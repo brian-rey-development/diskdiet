@@ -10,7 +10,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 pub(crate) const GIT: &str = "git";
-pub(crate) const GIT_FALLBACK: &str = "git";
 pub(crate) const UV: &str = "uv";
 pub(crate) const PNPM: &str = "pnpm";
 pub(crate) const NPM: &str = "npm";

@@ -1,4 +1,4 @@
-use diskdiet::git::porcelain::parse_porcelain;
+use diskdiet::git::porcelain::{listed_paths, parse_porcelain};
 use std::path::PathBuf;
 
 #[test]
@@ -24,4 +24,24 @@ fn porcelain_parser_ignores_empty_input_and_quoted_paths() {
     assert!(parse_porcelain("").is_empty());
     assert!(parse_porcelain("\n\n").is_empty());
     assert!(parse_porcelain("worktree \"/odd\\npath\"\nHEAD a\n").is_empty());
+}
+
+#[test]
+fn listed_paths_names_every_worktree_including_locked_and_prunable_ones() {
+    let text = "worktree /Users/me/repo\nHEAD a\nbranch refs/heads/main\n\n\
+                worktree /Volumes/x/gone\nHEAD b\nprunable gitdir file points to non-existent location\n\n\
+                worktree /Users/me/old one\nHEAD c\nlocked\nprunable\n";
+    let expected = vec![
+        PathBuf::from("/Users/me/repo"),
+        PathBuf::from("/Volumes/x/gone"),
+        PathBuf::from("/Users/me/old one"),
+    ];
+    assert_eq!(listed_paths(text), Some(expected));
+    assert_eq!(listed_paths(""), Some(Vec::new()));
+}
+
+#[test]
+fn listed_paths_gives_up_when_an_entry_has_an_unreadable_path() {
+    let text = "worktree /Users/me/repo\nHEAD a\n\nworktree \"/Volumes/caf\\303\\251/wt\"\nHEAD a\nprunable gone\n";
+    assert_eq!(listed_paths(text), None);
 }

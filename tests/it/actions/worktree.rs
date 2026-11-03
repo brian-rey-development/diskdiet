@@ -1,11 +1,11 @@
 use crate::support::fixtures::temp_root;
 use crate::support::git::{branch_exists, git, repo_with_worktree};
 use anyhow::{Result, anyhow};
-use diskdiet::actions::{perform, prune_names};
+use diskdiet::actions::perform;
 use diskdiet::model::{Action, Outcome, Removal};
 use diskdiet::tools::Tools;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn remove(repo: &Path, worktree: &Path, removal: Removal) -> Outcome {
     let action = Action::RemoveWorktree {
@@ -55,20 +55,6 @@ fn typed_confirmation_removes_a_dirty_worktree() -> Result<()> {
 }
 
 #[test]
-fn prune_preview_lines_name_the_worktrees_git_would_forget() {
-    let stderr = "Removing worktrees/gone: gitdir file points to non-existent location\n\
-                  Removing worktrees/old one: not a valid directory\n\
-                  something else\n";
-    assert_eq!(prune_names(stderr), vec!["gone", "old one"]);
-}
-
-#[test]
-fn prune_preview_lines_without_the_prefix_are_ignored() {
-    let output = "Removing worktrees/a: gitdir file points to non-existent location\nnoise\n";
-    assert_eq!(prune_names(output), vec!["a".to_owned()]);
-}
-
-#[test]
 fn prune_is_skipped_when_it_would_forget_a_worktree_on_an_unplugged_drive() -> Result<()> {
     let (_tmp, root) = temp_root()?;
     let (repo, worktree) = repo_with_worktree(&root, "feature")?;
@@ -89,5 +75,25 @@ fn prune_worktrees_clears_entries_whose_folder_is_gone() -> Result<()> {
     assert_eq!(prune(&repo), Outcome::Done);
     assert!(!git(&repo, &["worktree", "list"])?.contains("wt-feature"));
     assert!(branch_exists(&repo, "feature")?);
+    Ok(())
+}
+
+#[test]
+fn prune_is_skipped_when_the_worktree_listing_fails() {
+    let missing = PathBuf::from("/nonexistent-diskdiet-repo");
+    assert!(matches!(prune(&missing), Outcome::Skipped(_)));
+}
+
+#[test]
+fn prune_is_skipped_for_a_locked_worktree_on_an_unplugged_drive() -> Result<()> {
+    let (_tmp, root) = temp_root()?;
+    let (repo, worktree) = repo_with_worktree(&root, "feature")?;
+    git(&repo, &["worktree", "lock", &worktree.to_string_lossy()])?;
+    fs::remove_dir_all(&worktree)?;
+    let name = worktree.file_name().ok_or_else(|| anyhow!("name"))?;
+    let gitdir = repo.join(".git/worktrees").join(name).join("gitdir");
+    fs::write(&gitdir, "/Volumes/diskdiet-test-unplugged/wt/.git\n")?;
+    assert!(matches!(prune(&repo), Outcome::Skipped(_)));
+    assert!(gitdir.exists());
     Ok(())
 }
