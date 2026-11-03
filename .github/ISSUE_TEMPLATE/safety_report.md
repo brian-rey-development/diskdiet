@@ -4,19 +4,19 @@ about: diskdiet offered or removed something it should not have
 labels: safety
 ---
 
-Safety reports are the most important issues in this repository. Each confirmed one becomes a new rule in docs/SAFETY.md and a new test.
+Each confirmed safety report becomes a new rule in docs/SAFETY.md and a new test.
 
 **What was offered or removed**
-The item label, its category and the risk diskdiet showed (Safe, Review or Danger). Was it preselected?
+The item label, its category, the risk shown (Safe, Review or Danger) and whether it was preselected.
 
 **Why it was not safe**
-For example, a worktree held a file that existed nowhere else, or a cache was in use.
+For example, a worktree held a file that existed nowhere else.
 
 **The folder**
-Describe its layout (which files were inside, what `.gitignore` says). Do not paste secrets.
+Its layout, including which files were inside and what `.gitignore` says. No secrets.
 
 **Log lines**
-The matching lines from `~/Library/Logs/diskdiet.log`.
+Matching lines from `~/Library/Logs/diskdiet.log`.
 
 **Environment**
 - macOS version:
