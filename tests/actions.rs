@@ -382,11 +382,11 @@ fn percent_encode_keeps_unreserved_and_escapes_the_rest() {
 #[test]
 fn tweet_url_for_label_is_a_single_encoded_intent_link() {
     let url = tweet_url_for_label("287 GB");
-    assert!(
-        url.starts_with(
-            "https://x.com/intent/post?text=I%20just%20freed%20287%20GB%20on%20my%20Mac"
-        )
+    let machine = percent_encode(diskdiet::platform::MACHINE);
+    let start = format!(
+        "https://x.com/intent/post?text=I%20just%20freed%20287%20GB%20on%20my%20{machine}%20with"
     );
+    assert!(url.starts_with(&start), "{url}");
     assert!(url.contains("%0A%0Ahttps%3A%2F%2Fgithub.com%2Fbrian-rey-development%2Fdiskdiet"));
     assert!(!url.contains(' ') && !url.contains('\n'));
 }

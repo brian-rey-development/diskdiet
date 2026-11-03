@@ -10,6 +10,6 @@ echo "==> cargo clippy"
 cargo clippy --all-targets -- -D warnings
 
 echo "==> cargo test"
-cargo test
+cargo test --no-fail-fast
 
 echo "All checks passed."
