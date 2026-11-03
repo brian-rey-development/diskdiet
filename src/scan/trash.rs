@@ -1,5 +1,5 @@
 use super::ScanContext;
-use super::caches::measured;
+use super::support::measured;
 use crate::fmt::tilde_path;
 use crate::model::{Action, Category, Item, Risk};
 use crate::platform::trash_dir;

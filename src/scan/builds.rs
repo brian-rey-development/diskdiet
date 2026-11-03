@@ -2,7 +2,7 @@ use super::ScanContext;
 use crate::fmt::{format_age, tilde_path};
 use crate::fsutil::child_dirs;
 use crate::model::{Action, Category, Item, Risk};
-use crate::size::{disk_usage, format_bytes};
+use crate::size::{format_bytes, path_usage};
 use crate::time::{SECS_PER_DAY, secs_since};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -183,7 +183,7 @@ fn describe(path: &Path, kind: &BuildKind, bytes: u64) -> String {
 }
 
 fn build_item(path: &Path, kind: &BuildKind, home: &Path) -> Item {
-    let bytes = disk_usage(&[path.to_path_buf()]);
+    let bytes = path_usage(path);
     Item::new(
         kind.category,
         tilde_path(path, home),

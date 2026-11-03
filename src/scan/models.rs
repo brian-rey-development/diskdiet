@@ -1,6 +1,6 @@
 use super::ScanContext;
-use super::caches::measured;
-use crate::fmt::{parse_size, tilde_path};
+use super::support::{file_label, located_detail, measured};
+use crate::fmt::parse_size;
 use crate::model::{Action, Category, Item, Risk};
 use crate::process::{DEFAULT_TIMEOUT, run_stdout};
 use crate::tools;
@@ -12,7 +12,18 @@ const HF_HUB_DIR: &str = ".cache/huggingface/hub";
 const HF_MODEL_PREFIX: &str = "models--";
 const HF_SEPARATOR: &str = "--";
 const OLLAMA_HEADER: &str = "NAME";
-const OLLAMA_MIN_COLUMNS: usize = 4;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OllamaModel {
+    pub tags: Vec<String>,
+    pub bytes: u64,
+}
+
+struct OllamaRow {
+    tag: String,
+    id: String,
+    bytes: u64,
+}
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
     let mut items = ollama_items(ctx);
@@ -20,18 +31,21 @@ pub fn scan(ctx: &ScanContext) -> Vec<Item> {
     items
 }
 
-pub fn parse_ollama_list(text: &str) -> Vec<(Vec<String>, u64)> {
-    let mut groups: Vec<(String, Vec<String>, u64)> = Vec::new();
-    for (name, id, bytes) in text.lines().filter_map(parse_ollama_row) {
-        match groups.iter_mut().find(|(known, _, _)| *known == id) {
-            Some((_, names, _)) => names.push(name),
-            None => groups.push((id, vec![name], bytes)),
+pub fn parse_ollama_list(text: &str) -> Vec<OllamaModel> {
+    let mut grouped: Vec<(String, OllamaModel)> = Vec::new();
+    for row in text.lines().filter_map(parse_ollama_row) {
+        match grouped.iter_mut().find(|(known_id, _)| *known_id == row.id) {
+            Some((_, model)) => model.tags.push(row.tag),
+            None => grouped.push((
+                row.id,
+                OllamaModel {
+                    tags: vec![row.tag],
+                    bytes: row.bytes,
+                },
+            )),
         }
     }
-    groups
-        .into_iter()
-        .map(|(_, names, bytes)| (names, bytes))
-        .collect()
+    grouped.into_iter().map(|(_, model)| model).collect()
 }
 
 pub fn hf_label(folder: &str) -> Option<String> {
@@ -39,13 +53,19 @@ pub fn hf_label(folder: &str) -> Option<String> {
     (!rest.is_empty()).then(|| rest.replace(HF_SEPARATOR, "/"))
 }
 
-fn parse_ollama_row(line: &str) -> Option<(String, String, u64)> {
+fn parse_ollama_row(line: &str) -> Option<OllamaRow> {
     let columns: Vec<&str> = line.split_whitespace().collect();
-    if columns.len() < OLLAMA_MIN_COLUMNS || columns[0] == OLLAMA_HEADER {
+    let [tag, id, amount, unit, ..] = columns.as_slice() else {
+        return None;
+    };
+    if *tag == OLLAMA_HEADER {
         return None;
     }
-    let bytes = parse_size(&format!("{}{}", columns[2], columns[3]))?;
-    Some((columns[0].to_string(), columns[1].to_string(), bytes))
+    Some(OllamaRow {
+        tag: (*tag).to_owned(),
+        id: (*id).to_owned(),
+        bytes: parse_size(&format!("{amount}{unit}"))?,
+    })
 }
 
 fn ollama_items(ctx: &ScanContext) -> Vec<Item> {
@@ -56,26 +76,25 @@ fn ollama_items(ctx: &ScanContext) -> Vec<Item> {
         return Vec::new();
     };
     parse_ollama_list(&listing)
-        .into_iter()
-        .map(|(names, bytes)| ollama_item(ollama, &names, bytes))
+        .iter()
+        .map(|model| ollama_item(ollama, model))
         .collect()
 }
 
-fn ollama_item(ollama: &Path, names: &[String], bytes: u64) -> Item {
-    let mut args = vec!["rm".to_string()];
-    args.extend(names.iter().cloned());
+fn ollama_item(ollama: &Path, model: &OllamaModel) -> Item {
+    let mut args = vec!["rm".to_owned()];
+    args.extend(model.tags.iter().cloned());
     let action = Action::RunCommand {
         program: ollama.to_path_buf(),
         args,
     };
-    let name = names.join(", ");
-    let first = names.first().map_or("", String::as_str);
-    let detail = format!("Ollama model · re-download with `ollama pull {first}`");
+    let first_tag = model.tags.first().map_or("", String::as_str);
+    let detail = format!("Ollama model · re-download with `ollama pull {first_tag}`");
     Item::new(
         Category::AiModels,
-        name,
+        model.tags.join(", "),
         detail,
-        bytes,
+        model.bytes,
         Risk::Review,
         action,
     )
@@ -85,7 +104,7 @@ fn huggingface_items(ctx: &ScanContext) -> Vec<Item> {
     let Ok(entries) = fs::read_dir(ctx.home.join(HF_HUB_DIR)) else {
         return Vec::new();
     };
-    let folders: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    let folders: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
     folders
         .into_par_iter()
         .filter_map(|path| huggingface_item(ctx, path))
@@ -93,16 +112,15 @@ fn huggingface_items(ctx: &ScanContext) -> Vec<Item> {
 }
 
 fn huggingface_item(ctx: &ScanContext, path: PathBuf) -> Option<Item> {
-    let label = hf_label(&path.file_name()?.to_string_lossy())?;
+    let label = hf_label(&file_label(&path)?)?;
     let bytes = measured(&path)?;
-    let detail = format!("Hugging Face model · {}", tilde_path(&path, &ctx.home));
-    let action = Action::DeletePath(path);
+    let detail = located_detail("Hugging Face model", &path, &ctx.home);
     Some(Item::new(
         Category::AiModels,
         label,
         detail,
         bytes,
         Risk::Review,
-        action,
+        Action::DeletePath(path),
     ))
 }

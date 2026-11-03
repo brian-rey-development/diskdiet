@@ -150,3 +150,7 @@ pub fn format_bytes(bytes: u64) -> String {
     }
     format!("{value:.1} {}", UNITS[unit])
 }
+
+pub fn path_usage(path: &Path) -> u64 {
+    tally_root(path).total()
+}
