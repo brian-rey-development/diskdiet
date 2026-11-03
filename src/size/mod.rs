@@ -68,10 +68,7 @@ fn node_of(path: PathBuf, meta: &Metadata) -> Node {
 fn read_dir_nodes(dir: &Path) -> io::Result<Vec<Node>> {
     let nodes = std::fs::read_dir(dir)?
         .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let meta = entry.path().symlink_metadata().ok()?;
-            Some(node_of(entry.path(), &meta))
-        })
+        .filter_map(|entry| Some(node_of(entry.path(), &entry.metadata().ok()?)))
         .collect();
     Ok(nodes)
 }
@@ -151,6 +148,6 @@ pub fn format_bytes(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
-pub fn path_usage(path: &Path) -> u64 {
+pub(crate) fn path_usage(path: &Path) -> u64 {
     tally_root(path).total()
 }

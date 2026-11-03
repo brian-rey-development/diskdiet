@@ -2,7 +2,8 @@ use crate::fmt::tilde_path;
 use crate::size::path_usage;
 use std::path::Path;
 
-const DETAIL_SEPARATOR: &str = " · ";
+pub(crate) const DETAIL_SEPARATOR: &str = " · ";
+pub(crate) const GIT_DIR: &str = ".git";
 
 pub(crate) fn measured(path: &Path) -> Option<u64> {
     if !path.exists() {

@@ -1,4 +1,5 @@
 use super::ScanContext;
+use super::support::{DETAIL_SEPARATOR, GIT_DIR};
 use crate::fmt::{format_age, tilde_path};
 use crate::fsutil::child_dirs;
 use crate::model::{Action, Category, Item, Risk};
@@ -10,7 +11,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const BUILD_SCAN_MAX_DEPTH: usize = 12;
-const GIT_DIR: &str = ".git";
 const NODE_MODULES: &str = "node_modules";
 const PACKAGE_JSON: &str = "package.json";
 const LINKED_WORKTREE_MARKER: &str = "/worktrees/";
@@ -164,22 +164,23 @@ fn should_offer(path: &Path, kind: &BuildKind, ctx: &ScanContext) -> bool {
     !kind.offered_only_when_stale || node_modules_is_stale(path, stale_days)
 }
 
-fn describe(path: &Path, kind: &BuildKind, bytes: u64) -> String {
-    let modified = fs::metadata(path)
+fn modified_text(path: &Path) -> String {
+    fs::metadata(path)
         .and_then(|meta| meta.modified())
         .map_or_else(
             |_| UNKNOWN_AGE.to_owned(),
             |time| format_age(secs_since(time)),
-        );
-    let base = format!(
-        "{} · {} · last modified {modified}",
-        kind.label,
-        format_bytes(bytes)
-    );
-    match kind.hint {
-        Some(hint) => format!("{base} · {hint}"),
-        None => base,
-    }
+        )
+}
+
+fn describe(path: &Path, kind: &BuildKind, bytes: u64) -> String {
+    let mut parts = vec![
+        kind.label.to_owned(),
+        format_bytes(bytes),
+        format!("last modified {}", modified_text(path)),
+    ];
+    parts.extend(kind.hint.map(str::to_owned));
+    parts.join(DETAIL_SEPARATOR)
 }
 
 fn build_item(path: &Path, kind: &BuildKind, home: &Path) -> Item {
