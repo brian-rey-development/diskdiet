@@ -46,7 +46,7 @@ fn cachedir_tag_without_manifest_is_not_a_build_dir() -> Result<()> {
         write_file(&dir.join("CACHEDIR.TAG"), CACHEDIR_TAG)?;
         assert_eq!(classify(&dir), None, "{name} must not be a build dir");
     }
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 
@@ -147,7 +147,7 @@ fn symlinked_target_is_never_a_build_dir() -> Result<()> {
     let real = make_dir(&root.join("elsewhere"))?;
     symlink(&real, root.join("crate/target"))?;
     assert_eq!(classify(&root.join("crate/target")), None);
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }
 
@@ -161,6 +161,6 @@ fn linked_worktrees_are_left_to_the_worktree_scanner() -> Result<()> {
     git(&repo, &["commit", "-m", "manifest"])?;
     let worktree = add_worktree(&repo, &repo.join(".claude/worktrees/agent"), "agent")?;
     payload(&worktree.join("target"))?;
-    assert!(scan_root(&root).is_empty());
+    assert_eq!(scan_root(&root), [] as [diskdiet::model::Item; 0]);
     Ok(())
 }

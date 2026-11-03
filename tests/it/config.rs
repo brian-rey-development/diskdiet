@@ -7,9 +7,9 @@ use tempfile::tempdir;
 #[test]
 fn default_config_has_empty_lists_and_stock_thresholds() {
     let config = Config::default();
-    assert!(config.dev_roots.is_empty());
-    assert!(config.exclude.is_empty());
-    assert!(config.extra_cache_dirs.is_empty());
+    assert_eq!(config.dev_roots, [] as [std::path::PathBuf; 0]);
+    assert_eq!(config.exclude, [] as [std::path::PathBuf; 0]);
+    assert_eq!(config.extra_cache_dirs, [] as [std::path::PathBuf; 0]);
     assert_eq!(config.stale_app_days, 90);
     assert_eq!(config.stale_download_days, 90);
     assert_eq!(config.stale_node_modules_days, 30);

@@ -19,12 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The typed confirmation for a dangerous worktree now appears right after the category it belongs to, with the item's details in a warning above the prompt, instead of after every category has been answered.
 - The summary table right-aligns the item counts and is followed by a one-line reminder of the keys.
 - The execution progress bar shows the repository of a worktree and keeps the item name inside the terminal width.
-
 - Startup is faster because tools are looked up on `PATH` first, and the login shell is only started when a tool is not found there.
 - Fewer git calls per scan, because repositories without linked worktrees are skipped before git is asked about them.
 - App usage is read with one batched `mdls` call instead of one per app.
 - The scan thread pool is capped at eight threads, which keeps large machines from spawning more workers than the disk can feed.
 - CI uses `actions/checkout` v7 and the minimum supported Rust version is now 1.88.
+- The code is split into small single-purpose modules, `scan` and `actions` no longer depend on each other, and clippy's `pedantic` group is now enforced in CI alongside the default lints.
 
 ### Fixed
 

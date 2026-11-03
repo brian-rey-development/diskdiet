@@ -1,4 +1,4 @@
-use diskdiet::git::status::count_status;
+use diskdiet::git::status::{StatusCounts, count_status};
 use std::path::Path;
 
 const NO_MANIFESTS: &str = "/nonexistent-diskdiet-worktree";
@@ -10,7 +10,7 @@ fn status_counts_split_dirty_from_risky_ignored() {
     assert_eq!((counts.dirty, counts.risky_ignored), (3, 1));
     assert_eq!(
         count_status("", Path::new(NO_MANIFESTS)),
-        Default::default()
+        StatusCounts::default()
     );
 }
 

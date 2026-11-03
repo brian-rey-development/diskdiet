@@ -11,7 +11,7 @@ use console::style;
 use std::io;
 use std::path::Path;
 
-const PERCENT: f64 = 100.0;
+const PERCENT: u128 = 100;
 const MIN_CELEBRATED_BYTES: u64 = 1_000_000;
 const DONE: &str = "Done.";
 const TRASH_HINT: &str = "Done. Items moved to the Trash free their space once you empty it.";
@@ -28,14 +28,16 @@ impl FreeSpace {
     }
 }
 
-pub(crate) fn free_percent(free: u64, total: u64) -> u64 {
+pub fn free_percent(free: u64, total: u64) -> u64 {
     if total == 0 {
         return 0;
     }
-    (free as f64 / total as f64 * PERCENT).round() as u64
+    let (free, total) = (u128::from(free), u128::from(total));
+    let rounded = (free * PERCENT * 2 + total) / (total * 2);
+    u64::try_from(rounded).unwrap_or(u64::MAX)
 }
 
-pub(crate) fn disk_status(free: u64, total: Option<u64>) -> String {
+pub fn disk_status(free: u64, total: Option<u64>) -> String {
     let Some(total) = total else {
         return format!("Your disk now has {} free", format_bytes(free));
     };
@@ -74,7 +76,7 @@ fn print_share(space: FreeSpace) -> anyhow::Result<()> {
     report::write_ignoring_closed_pipe(&text)
 }
 
-pub(crate) fn finish(
+pub fn finish(
     args: &Args,
     home: &Path,
     executed: &[Executed],

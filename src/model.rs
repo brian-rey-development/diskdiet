@@ -19,52 +19,52 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 10] = [
-        Category::AgentWorktrees,
-        Category::BuildArtifacts,
-        Category::PythonEnvs,
-        Category::PackageCaches,
-        Category::AppCaches,
-        Category::Docker,
-        Category::AiModels,
-        Category::UnusedApps,
-        Category::Downloads,
-        Category::Trash,
+    pub const ALL: [Self; 10] = [
+        Self::AgentWorktrees,
+        Self::BuildArtifacts,
+        Self::PythonEnvs,
+        Self::PackageCaches,
+        Self::AppCaches,
+        Self::Docker,
+        Self::AiModels,
+        Self::UnusedApps,
+        Self::Downloads,
+        Self::Trash,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            Category::AgentWorktrees => "Git worktrees",
-            Category::BuildArtifacts => "Build artifacts",
-            Category::PythonEnvs => "Python virtualenvs",
-            Category::PackageCaches => "Package manager caches",
-            Category::AppCaches => "App caches",
-            Category::Docker => "Docker",
-            Category::AiModels => "AI models",
-            Category::UnusedApps => "Unused apps",
-            Category::Downloads => "Downloads",
-            Category::Trash => "Trash",
+            Self::AgentWorktrees => "Git worktrees",
+            Self::BuildArtifacts => "Build artifacts",
+            Self::PythonEnvs => "Python virtualenvs",
+            Self::PackageCaches => "Package manager caches",
+            Self::AppCaches => "App caches",
+            Self::Docker => "Docker",
+            Self::AiModels => "AI models",
+            Self::UnusedApps => "Unused apps",
+            Self::Downloads => "Downloads",
+            Self::Trash => "Trash",
         }
     }
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Category::AgentWorktrees => "Worktrees left behind by you or your coding agents",
-            Category::BuildArtifacts => {
+            Self::AgentWorktrees => "Worktrees left behind by you or your coding agents",
+            Self::BuildArtifacts => {
                 "Rust target/, .next/, .turbo/ and stale node_modules. Rebuilt on demand"
             }
-            Category::PythonEnvs => "Project .venv folders. Run `uv sync` to recreate them",
-            Category::PackageCaches => {
+            Self::PythonEnvs => "Project .venv folders. Run `uv sync` to recreate them",
+            Self::PackageCaches => {
                 "uv, pnpm, npm, cargo, Homebrew and friends. Re-downloaded on demand"
             }
-            Category::AppCaches => "Regenerable caches inside ~/Library/Caches",
-            Category::Docker => {
+            Self::AppCaches => "Regenerable caches inside ~/Library/Caches",
+            Self::Docker => {
                 "Unused images and build cache. Containers and volumes are never touched"
             }
-            Category::AiModels => "Local Ollama and Hugging Face models. Re-downloaded on demand",
-            Category::UnusedApps => "Apps you have not opened in a long time. Moved to the Trash",
-            Category::Downloads => "Installers and old files in ~/Downloads. Moved to the Trash",
-            Category::Trash => "Everything already in your Trash. Permanent",
+            Self::AiModels => "Local Ollama and Hugging Face models. Re-downloaded on demand",
+            Self::UnusedApps => "Apps you have not opened in a long time. Moved to the Trash",
+            Self::Downloads => "Installers and old files in ~/Downloads. Moved to the Trash",
+            Self::Trash => "Everything already in your Trash. Permanent",
         }
     }
 }
@@ -79,9 +79,9 @@ pub enum Risk {
 impl Risk {
     pub fn as_str(self) -> &'static str {
         match self {
-            Risk::Safe => "safe",
-            Risk::Review => "review",
-            Risk::Danger => "danger",
+            Self::Safe => "safe",
+            Self::Review => "review",
+            Self::Danger => "danger",
         }
     }
 }
@@ -120,28 +120,26 @@ pub enum Action {
 impl Action {
     pub fn path(&self) -> Option<&Path> {
         match self {
-            Action::DeletePath(path) | Action::MoveToTrash(path) => Some(path),
-            Action::RemoveWorktree { worktree, .. } => Some(worktree),
-            Action::PruneWorktrees { repo } => Some(repo),
-            Action::RunCommand { .. } | Action::EmptyTrash => None,
+            Self::DeletePath(path) | Self::MoveToTrash(path) => Some(path),
+            Self::RemoveWorktree { worktree, .. } => Some(worktree),
+            Self::PruneWorktrees { repo } => Some(repo),
+            Self::RunCommand { .. } | Self::EmptyTrash => None,
         }
     }
 
     pub fn deletes_path(&self) -> bool {
-        matches!(self, Action::DeletePath(_) | Action::MoveToTrash(_))
+        matches!(self, Self::DeletePath(_) | Self::MoveToTrash(_))
     }
 
     pub fn is_vm_trim(&self) -> bool {
-        matches!(self, Action::RunCommand { args, .. } if args.iter().any(|arg| arg == FSTRIM))
+        matches!(self, Self::RunCommand { args, .. } if args.iter().any(|arg| arg == FSTRIM))
     }
 
     pub fn ignores_size_floor(&self) -> bool {
         match self {
-            Action::PruneWorktrees { .. } | Action::RemoveWorktree { .. } | Action::EmptyTrash => {
-                true
-            }
-            Action::RunCommand { .. } => self.is_vm_trim(),
-            Action::DeletePath(_) | Action::MoveToTrash(_) => false,
+            Self::PruneWorktrees { .. } | Self::RemoveWorktree { .. } | Self::EmptyTrash => true,
+            Self::RunCommand { .. } => self.is_vm_trim(),
+            Self::DeletePath(_) | Self::MoveToTrash(_) => false,
         }
     }
 }
@@ -149,19 +147,19 @@ impl Action {
 impl fmt::Display for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Action::DeletePath(path) => write!(f, "delete {}", path.display()),
-            Action::MoveToTrash(path) => write!(f, "trash {}", path.display()),
-            Action::EmptyTrash => f.write_str("empty trash"),
-            Action::RunCommand { program, args } => {
+            Self::DeletePath(path) => write!(f, "delete {}", path.display()),
+            Self::MoveToTrash(path) => write!(f, "trash {}", path.display()),
+            Self::EmptyTrash => f.write_str("empty trash"),
+            Self::RunCommand { program, args } => {
                 write!(f, "run {} {}", program.display(), args.join(" "))
             }
-            Action::RemoveWorktree { repo, worktree, .. } => write!(
+            Self::RemoveWorktree { repo, worktree, .. } => write!(
                 f,
                 "remove worktree {} (repo {})",
                 worktree.display(),
                 repo.display()
             ),
-            Action::PruneWorktrees { repo } => {
+            Self::PruneWorktrees { repo } => {
                 write!(f, "prune worktrees (repo {})", repo.display())
             }
         }
@@ -201,6 +199,7 @@ impl Item {
         }
     }
 
+    #[must_use]
     pub fn with_typed_delete(mut self) -> Self {
         self.typed_confirmation = Some(DELETE_CONFIRMATION.to_owned());
         self
@@ -220,12 +219,12 @@ pub enum Outcome {
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Outcome::Done => f.write_str("done"),
-            Outcome::DryRun => f.write_str("dry-run"),
-            Outcome::Skipped(why) => write!(f, "skipped: {why}"),
-            Outcome::Failed(why) => write!(f, "failed: {why}"),
-            Outcome::NeedsFullDiskAccess => f.write_str("needs full disk access"),
-            Outcome::Stopped => f.write_str("stopped"),
+            Self::Done => f.write_str("done"),
+            Self::DryRun => f.write_str("dry-run"),
+            Self::Skipped(why) => write!(f, "skipped: {why}"),
+            Self::Failed(why) => write!(f, "failed: {why}"),
+            Self::NeedsFullDiskAccess => f.write_str("needs full disk access"),
+            Self::Stopped => f.write_str("stopped"),
         }
     }
 }

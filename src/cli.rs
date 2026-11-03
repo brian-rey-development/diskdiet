@@ -3,6 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Parser)]
+#[allow(clippy::struct_excessive_bools)]
 #[command(
     name = "diskdiet",
     version,

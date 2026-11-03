@@ -53,5 +53,15 @@ pub fn parse_size(text: &str) -> Option<u64> {
     let number: f64 = token[..split].parse().ok()?;
     let unit = token[split..].to_ascii_lowercase();
     let (_, factor) = SIZE_UNIT_FACTORS.iter().find(|(name, _)| *name == unit)?;
-    Some((number * factor).round() as u64)
+    whole_bytes(number * factor)
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn whole_bytes(value: f64) -> Option<u64> {
+    let rounded = value.round();
+    (rounded.is_finite() && rounded >= 0.0 && rounded <= u64::MAX as f64).then_some(rounded as u64)
 }

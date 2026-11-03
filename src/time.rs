@@ -1,13 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) const SECS_PER_MINUTE: u64 = 60;
-pub(crate) const SECS_PER_HOUR: u64 = 3_600;
-pub(crate) const SECS_PER_DAY: u64 = 86_400;
+pub(crate) const SECS_PER_MINUTE: u64 = signed::SECS_PER_MINUTE.unsigned_abs();
+pub(crate) const SECS_PER_HOUR: u64 = signed::SECS_PER_HOUR.unsigned_abs();
+pub(crate) const SECS_PER_DAY: u64 = signed::SECS_PER_DAY.unsigned_abs();
 
 pub(crate) mod signed {
-    pub(crate) const SECS_PER_MINUTE: i64 = super::SECS_PER_MINUTE as i64;
-    pub(crate) const SECS_PER_HOUR: i64 = super::SECS_PER_HOUR as i64;
-    pub(crate) const SECS_PER_DAY: i64 = super::SECS_PER_DAY as i64;
+    pub const SECS_PER_MINUTE: i64 = 60;
+    pub const SECS_PER_HOUR: i64 = 3_600;
+    pub const SECS_PER_DAY: i64 = 86_400;
 }
 
 const YEARS_PER_ERA: i64 = 400;

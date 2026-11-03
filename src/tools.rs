@@ -65,7 +65,7 @@ impl Tools {
     }
 
     pub(crate) fn get_or<'a>(&'a self, name: &str, fallback: &'a str) -> &'a Path {
-        self.get(name).unwrap_or(Path::new(fallback))
+        self.get(name).unwrap_or_else(|| Path::new(fallback))
     }
 }
 

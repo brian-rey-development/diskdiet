@@ -21,9 +21,18 @@ fn porcelain_parser_handles_spaces_detached_and_bare_entries() {
 
 #[test]
 fn porcelain_parser_ignores_empty_input_and_quoted_paths() {
-    assert!(parse_porcelain("").is_empty());
-    assert!(parse_porcelain("\n\n").is_empty());
-    assert!(parse_porcelain("worktree \"/odd\\npath\"\nHEAD a\n").is_empty());
+    assert_eq!(
+        parse_porcelain(""),
+        [] as [diskdiet::git::porcelain::WorktreeEntry; 0]
+    );
+    assert_eq!(
+        parse_porcelain("\n\n"),
+        [] as [diskdiet::git::porcelain::WorktreeEntry; 0]
+    );
+    assert_eq!(
+        parse_porcelain("worktree \"/odd\\npath\"\nHEAD a\n"),
+        [] as [diskdiet::git::porcelain::WorktreeEntry; 0]
+    );
 }
 
 #[test]

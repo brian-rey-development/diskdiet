@@ -23,12 +23,12 @@ const NOTHING_TO_TRIM: &str = "Nothing to trim. Your disk is already lean.";
 const NOTHING_IN_CHOSEN: &str = "Nothing to trim in the categories you chose.";
 const NOTHING_SELECTED: &str = "Nothing selected. Your disk stays exactly as it is.";
 
-pub fn run(args: Args) -> anyhow::Result<()> {
+pub fn run(args: &Args) -> anyhow::Result<()> {
     if args.report {
-        return report::run(&args);
+        return report::run(args);
     }
     theme::install();
-    match interactive(&args) {
+    match interactive(args) {
         Err(error) if is_interrupt(&error) => {
             cliclack::outro_cancel(CANCEL_MESSAGE)?;
             Ok(())

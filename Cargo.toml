@@ -32,6 +32,13 @@ unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+use_self = "deny"
+redundant_pub_crate = "deny"
+equatable_if_let = "deny"
+or_fun_call = "deny"
 too_many_lines = "deny"
 unwrap_used = "deny"
 expect_used = "warn"

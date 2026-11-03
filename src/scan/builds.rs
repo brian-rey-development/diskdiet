@@ -84,10 +84,10 @@ type Found = BTreeMap<PathBuf, &'static BuildKind>;
 impl Evidence {
     fn holds_for(&self, dir: &Path) -> bool {
         match self {
-            Evidence::SiblingManifest(names) => dir
+            Self::SiblingManifest(names) => dir
                 .parent()
                 .is_some_and(|parent| names.iter().any(|name| parent.join(name).is_file())),
-            Evidence::ContainedFile(name) => dir.join(name).is_file(),
+            Self::ContainedFile(name) => dir.join(name).is_file(),
         }
     }
 }
