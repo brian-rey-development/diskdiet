@@ -1,8 +1,15 @@
-# diskdiet
+<h1 align="center">
+  <img src="docs/brand/logo.png" alt="diskdiet" width="300">
+</h1>
 
-**Your AI agents made your disk fat. Put it on a diet.**
+<p align="center"><b>Your AI agents made your disk fat. Put it on a diet.</b></p>
 
-[![CI](https://github.com/brian-rey-development/diskdiet/actions/workflows/ci.yml/badge.svg)](https://github.com/brian-rey-development/diskdiet/actions/workflows/ci.yml) ![macOS and Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey) ![Rust](https://img.shields.io/badge/built%20with-Rust-orange) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+<p align="center">
+  <a href="https://github.com/brian-rey-development/diskdiet/actions/workflows/ci.yml"><img src="https://github.com/brian-rey-development/diskdiet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-D0F93B?labelColor=06090F" alt="macOS and Linux">
+  <img src="https://img.shields.io/badge/built%20with-Rust-D0F93B?labelColor=06090F" alt="Built with Rust">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-D0F93B?labelColor=06090F" alt="License: MIT"></a>
+</p>
 
 An interactive disk cleaner for developers, on macOS and Linux. It finds what generic cleaners miss, like worktrees left behind by coding agents, Rust `target/` folders and package manager caches, and lets you pick what goes.
 

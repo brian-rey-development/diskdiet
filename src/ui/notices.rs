@@ -20,6 +20,8 @@ const WEIGHING: &str = "Weighing your disk...";
 const DOCKER_SKIPPED: &str = "Docker is not running, skipped";
 const LOW_SPACE_WARNING: &str = "You are running low on space. Time for a diet.";
 const BYTES_PER_GB: u64 = 1_000_000_000;
+const BRAND_LIME: u8 = 191;
+const BRAND_INK: u8 = 16;
 const DOCKER_INFO_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) fn show_intro(args: &Args, before_free: u64, low_space_gb: u64) -> io::Result<()> {
@@ -27,7 +29,12 @@ pub(super) fn show_intro(args: &Args, before_free: u64, low_space_gb: u64) -> io
         RunMode::DryRun => " diskdiet (dry run) ",
         RunMode::Live => " diskdiet ",
     };
-    cliclack::intro(style(tag).reverse().bold())?;
+    cliclack::intro(
+        style(tag)
+            .color256(BRAND_INK)
+            .on_color256(BRAND_LIME)
+            .bold(),
+    )?;
     cliclack::log::info(format!(
         "{} free right now",
         style(format_bytes(before_free)).bold()
