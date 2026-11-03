@@ -12,6 +12,7 @@ pub mod platform;
 pub(crate) mod process;
 pub mod safety;
 pub mod scan;
+pub mod session;
 pub mod size;
 pub mod time;
 pub mod tools;

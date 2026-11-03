@@ -1,6 +1,7 @@
 use crate::platform::MACHINE;
 use crate::size::format_bytes;
 use console::{measure_text_width, style};
+use std::fmt::Write;
 
 const INTENT_BASE: &str = "https://x.com/intent/post?text=";
 const REPO_URL: &str = "https://github.com/brian-rey-development/diskdiet";
@@ -14,12 +15,16 @@ pub(crate) fn tweet_text(freed_label: &str) -> String {
     )
 }
 
+fn is_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+}
+
 pub fn percent_encode(text: &str) -> String {
     text.bytes().fold(String::new(), |mut out, byte| {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+        if is_unreserved(byte) {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
         out
     })
@@ -36,14 +41,14 @@ pub fn tweet_url(freed_bytes: u64) -> String {
 pub fn boxed(lines: &[String]) -> String {
     let inner = lines
         .iter()
-        .map(|l| measure_text_width(l))
+        .map(|line| measure_text_width(line))
         .max()
         .unwrap_or(0)
         + CARD_PADDING * 2;
     let rule = "─".repeat(inner);
     let body = lines
         .iter()
-        .map(|l| boxed_line(l, inner))
+        .map(|line| boxed_line(line, inner))
         .collect::<Vec<_>>();
     format!("╭{rule}╮\n{}\n╰{rule}╯", body.join("\n"))
 }
