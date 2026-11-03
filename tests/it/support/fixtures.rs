@@ -1,8 +1,8 @@
 use anyhow::Result;
-use diskdiet::config::Config;
-use diskdiet::model::{Action, Category, Item, Risk};
-use diskdiet::scan::ScanContext;
-use diskdiet::tools::Tools;
+use diskdiet::domain::config::Config;
+use diskdiet::domain::model::{Action, Category, Item, Risk};
+use diskdiet::features::scan::ScanContext;
+use diskdiet::infra::sys::tools::Tools;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

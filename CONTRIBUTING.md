@@ -31,9 +31,10 @@ It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `ca
 
 ## Code standards
 
-- Rust 2024, no `unwrap()` outside tests, `unsafe` denied by the lint config everywhere except `src/size/bulk.rs` (the one `getattrlistbulk` call, which parses its buffer through bounds-checked slices), `anyhow` for errors at the edges.
+- Rust 2024, no `unwrap()` outside tests, `unsafe` denied by the lint config everywhere except `src/infra/fs/size/bulk.rs` (the one `getattrlistbulk` call, which parses its buffer through bounds-checked slices), `anyhow` for errors at the edges.
 - Functions of 20 lines or fewer (clippy `too_many_lines` enforces it), named constants instead of magic numbers and strings, early returns, immutability by default.
 - No comments. Names carry the intent, and a reason that would need a comment becomes a well-named function or constant instead. The single exception is the `// SAFETY:` note on the one `unsafe` block, which is the Rust convention for stating why it is sound. Help text for `--help` goes through `#[arg(help = "...")]` in `cli.rs`, not doc comments.
+- Code lives in one of four layers, `app`, `features`, `domain` and `infra`, and imports only point downward (see the [module map](docs/ARCHITECTURE.md#module-map)). Write imports as full `use crate::layer::...` paths, one per line group, because `tests/it/architecture.rs` checks the direction by reading them.
 - Scanners never panic. On any error they skip the item.
 - Commits follow Conventional Commits, in English.
 
@@ -41,7 +42,7 @@ It runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `ca
 
 **Every safety rule needs a test.** The rules are listed in [docs/SAFETY.md](docs/SAFETY.md). If you add a rule, add the test in `tests/it/`, in the module that mirrors the code you touched, in the same change. If you change behavior that a rule covers, the test must still prove the rule holds. A pull request that touches deletion logic without a test will not be merged.
 
-All integration tests build into one binary, `tests/it/main.rs`, and the module tree under `tests/it/` mirrors `src/`. Shared helpers and constants live in `tests/it/support/` (temporary git repos, item and config builders), so reuse them instead of redefining your own. Every test returns `anyhow::Result<()>` and uses `?` for fallible setup. Tests must use temporary folders, never real folders on your machine. Run `cargo test` for the whole suite or `cargo test <module>::` to run one part, for example `cargo test scan::worktrees::`.
+All integration tests build into one binary, `tests/it/main.rs`, and the module tree under `tests/it/` mirrors `src/`. Shared helpers and constants live in `tests/it/support/` (temporary git repos, item and config builders), so reuse them instead of redefining your own. Every test returns `anyhow::Result<()>` and uses `?` for fallible setup. Tests must use temporary folders, never real folders on your machine. Run `cargo test` for the whole suite or `cargo test <module>::` to run one part, for example `cargo test features::scan::worktrees::`.
 
 ## Adding a scanner
 

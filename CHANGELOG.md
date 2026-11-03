@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The library is organized into four layers, `app`, `features`, `domain` and `infra`, so its public paths move (for example `diskdiet::model` is now `diskdiet::domain::model` and `diskdiet::scan` is now `diskdiet::features::scan`). A test fails the build whenever a lower layer imports a higher one.
 - Git worktrees are listed grouped by repository and sorted by branch name, and each row shows its repository as `repo › branch`.
 - The detail of the highlighted item moves to its own line under the row, and every detail, label, blurb, review row, spinner message and progress message is cut to the terminal width with an ellipsis instead of wrapping.
 - The typed confirmation for a dangerous worktree now appears right after the category it belongs to, with the item's details in a warning above the prompt, instead of after every category has been answered.

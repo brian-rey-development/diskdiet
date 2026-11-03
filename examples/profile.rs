@@ -1,8 +1,8 @@
 use anyhow::Context;
-use diskdiet::{
-    config,
+use diskdiet::domain::config;
+use diskdiet::features::scan::{SCANNERS, ScanContext};
+use diskdiet::infra::sys::{
     platform::{NO_HOME, home_dir},
-    scan::{SCANNERS, ScanContext},
     tools::Tools,
 };
 use std::time::Instant;
