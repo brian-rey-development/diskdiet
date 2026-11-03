@@ -5,6 +5,7 @@ pub mod docker;
 pub mod downloads;
 pub mod models;
 mod pipeline;
+pub(crate) mod support;
 pub mod trash;
 pub mod worktrees;
 

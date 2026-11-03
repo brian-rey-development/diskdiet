@@ -52,6 +52,13 @@ fn docker_df_lines_map_type_to_reclaimable_bytes() {
     );
 }
 
+fn tags_and_bytes(text: &str) -> Vec<(Vec<String>, u64)> {
+    parse_ollama_list(text)
+        .into_iter()
+        .map(|model| (model.tags, model.bytes))
+        .collect()
+}
+
 #[test]
 fn ollama_list_skips_header_and_parses_rows() {
     let text = "NAME            ID              SIZE      MODIFIED\n\
@@ -59,7 +66,7 @@ fn ollama_list_skips_header_and_parses_rows() {
                 llama3.2:latest a80c4f17acd5    2.0 GB    3 months ago\n\
                 nomic-embed-text:latest 0a109f422b47 274 MB 5 days ago\n";
     assert_eq!(
-        parse_ollama_list(text),
+        tags_and_bytes(text),
         vec![
             (vec!["qwen3:8b".to_string()], 5_200_000_000),
             (vec!["llama3.2:latest".to_string()], 2_000_000_000),
@@ -74,7 +81,7 @@ fn ollama_tags_of_the_same_model_are_one_item() {
                 llama3.2:latest a80c4f17acd5 2.0 GB 3 months ago\n\
                 llama3.2:3b a80c4f17acd5 2.0 GB 3 months ago\n";
     let names = vec!["llama3.2:latest".to_string(), "llama3.2:3b".to_string()];
-    assert_eq!(parse_ollama_list(text), vec![(names, 2_000_000_000)]);
+    assert_eq!(tags_and_bytes(text), vec![(names, 2_000_000_000)]);
 }
 
 #[test]
