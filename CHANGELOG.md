@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Startup is faster because tools are looked up on `PATH` first, and the login shell is only started when a tool is not found there.
+- Fewer git calls per scan, because repositories without linked worktrees are skipped before git is asked about them.
+- App usage is read with one batched `mdls` call instead of one per app.
+- The scan thread pool is capped at eight threads, which keeps large machines from spawning more workers than the disk can feed.
+- CI uses `actions/checkout` v7 and the minimum supported Rust version is now 1.88.
+
+### Fixed
+
+- The finish message printed the macOS log path on Linux, and now shows the real log location for each platform.
+- Counts of one now read "1 item" instead of "1 items" in the scan summary ("Found 1.2 GB across 1 item") and the execution progress ("Processed 1 item").
+
 ## [0.1.0] - Unreleased
 
 ### Added

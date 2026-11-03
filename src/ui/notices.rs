@@ -1,5 +1,6 @@
 use crate::cli::Args;
 use crate::config::Config;
+use crate::fmt::count_noun;
 use crate::model::{Category, Item, RunMode};
 use crate::process::run_stdout;
 use crate::scan::ScanContext;
@@ -33,6 +34,11 @@ pub(super) fn show_intro(args: &Args, before_free: u64, low_space_gb: u64) -> io
     Ok(())
 }
 
+pub fn found_summary(total_bytes: u64, item_count: usize) -> String {
+    let items = count_noun(item_count, "item", "items");
+    format!("Found {} across {items}", format_bytes(total_bytes))
+}
+
 pub(super) fn scan_with_spinner(
     home: PathBuf,
     config: Config,
@@ -42,11 +48,7 @@ pub(super) fn scan_with_spinner(
     spinner.start(WEIGHING);
     let (ctx, items) = scan_with_tools(home, config, only);
     let total: u64 = items.iter().map(|item| item.bytes).sum();
-    spinner.stop(format!(
-        "Found {} across {} items",
-        format_bytes(total),
-        items.len()
-    ));
+    spinner.stop(found_summary(total, items.len()));
     (ctx, items)
 }
 

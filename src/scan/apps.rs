@@ -96,8 +96,8 @@ pub fn parse_mdls_batch(raw: &str, app_count: usize) -> Option<Vec<Spotlight>> {
     Some(pairs.iter().map(spotlight_of).collect())
 }
 
-pub fn staleness(last_used: Option<i64>, now: i64, stale_days: u64) -> Option<String> {
-    let Some(stamp) = last_used else {
+pub fn stale_reason(latest_use: Option<i64>, now: i64, stale_days: u64) -> Option<String> {
+    let Some(stamp) = latest_use else {
         return Some(NO_USE_RECORDED_NOTE.to_owned());
     };
     let days = u64::try_from((now - stamp) / SECS_PER_DAY).unwrap_or(0);
@@ -244,8 +244,8 @@ fn latest_use_epoch_secs(ctx: &ScanContext, path: &Path, spotlight: &Spotlight) 
 }
 
 fn app_item(ctx: &ScanContext, path: PathBuf, spotlight: &Spotlight, now: i64) -> Option<Item> {
-    let last_used = latest_use_epoch_secs(ctx, &path, spotlight);
-    let status = staleness(last_used, now, ctx.config.stale_app_days)?;
+    let latest_use = latest_use_epoch_secs(ctx, &path, spotlight);
+    let status = stale_reason(latest_use, now, ctx.config.stale_app_days)?;
     let bytes = path_usage(&path);
     let label = file_stem_label(&path)?;
     let detail = located_detail(&status, &path, &ctx.home);

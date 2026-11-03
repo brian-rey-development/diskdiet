@@ -1,0 +1,15 @@
+mod actions;
+mod config;
+mod disk;
+mod fmt;
+mod freedesktop_trash;
+mod git;
+mod log;
+mod platform;
+mod safety;
+mod scan;
+mod size;
+mod support;
+mod time;
+mod tools;
+mod ui;

@@ -1,6 +1,7 @@
 use crate::actions;
+use crate::fmt::count_noun;
 use crate::model::{Action, Item, Outcome, RunMode};
-use crate::scan::caches::owner_is_running_now;
+use crate::scan::caches::owner_is_running_per_ps;
 use crate::tools::Tools;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -42,10 +43,14 @@ fn run_one(item: &Item, tools: &Tools, mode: RunMode) -> Outcome {
     if INTERRUPTED.load(Ordering::SeqCst) {
         return Outcome::Stopped;
     }
-    if mode == RunMode::Live && owner_is_running_now(item) {
+    if mode == RunMode::Live && owner_is_running_per_ps(item) {
         return Outcome::Skipped(OWNER_RUNNING.to_owned());
     }
     actions::execute(item, tools, mode)
+}
+
+pub fn processed_summary(item_count: usize) -> String {
+    format!("Processed {}", count_noun(item_count, "item", "items"))
 }
 
 fn progress_label(mode: RunMode) -> &'static str {
@@ -70,6 +75,6 @@ pub(crate) fn execute_all<'a>(
         executed.push(Executed { item, outcome });
         bar.inc(1);
     }
-    bar.stop(format!("Processed {} items", executed.len()));
+    bar.stop(processed_summary(executed.len()));
     executed
 }
