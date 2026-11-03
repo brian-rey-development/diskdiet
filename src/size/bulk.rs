@@ -1,9 +1,9 @@
-#![allow(unsafe_code)]
-
 use super::Node;
+use rustix::fs::{Mode, OFlags};
 use std::cell::RefCell;
-use std::ffi::{CString, OsStr};
+use std::ffi::OsStr;
 use std::io;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -21,24 +21,9 @@ thread_local! {
     static BUFFER: RefCell<Vec<u8>> = RefCell::new(vec![0; BUFFER_BYTES]);
 }
 
-struct Dir(libc::c_int);
-
-impl Drop for Dir {
-    fn drop(&mut self) {
-        // SAFETY: the descriptor came from a successful open and is closed exactly once.
-        unsafe { libc::close(self.0) };
-    }
-}
-
-fn open(dir: &Path) -> io::Result<Dir> {
-    let path = CString::new(dir.as_os_str().as_bytes()).map_err(io::Error::other)?;
-    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    // SAFETY: path is a valid NUL-terminated string that outlives the call.
-    let fd = unsafe { libc::open(path.as_ptr(), flags) };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(Dir(fd))
+fn open_dir(dir: &Path) -> io::Result<OwnedFd> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    Ok(rustix::fs::open(dir, flags, Mode::empty())?)
 }
 
 fn request() -> libc::attrlist {
@@ -53,12 +38,12 @@ fn request() -> libc::attrlist {
     }
 }
 
-fn fill(dir: &Dir, buffer: &mut [u8]) -> io::Result<usize> {
+fn fill(dir: &OwnedFd, buffer: &mut [u8]) -> io::Result<usize> {
     let mut attrs = request();
     // SAFETY: attrs and buffer are live, writable and buffer.len() is its real size.
     let count = unsafe {
         libc::getattrlistbulk(
-            dir.0,
+            dir.as_raw_fd(),
             (&raw mut attrs).cast(),
             buffer.as_mut_ptr().cast(),
             buffer.len(),
@@ -69,7 +54,7 @@ fn fill(dir: &Dir, buffer: &mut [u8]) -> io::Result<usize> {
 }
 
 pub fn list(dir: &Path) -> io::Result<Vec<Node>> {
-    let handle = open(dir)?;
+    let handle = open_dir(dir)?;
     let mut nodes = Vec::new();
     BUFFER.with_borrow_mut(|buffer| {
         loop {

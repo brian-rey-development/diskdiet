@@ -2,8 +2,9 @@ mod common;
 
 use anyhow::{Result, anyhow, ensure};
 use common::{add_worktree, git, init_repo, temp_root, test_ctx, write_file};
+use diskdiet::fmt::{format_age, tilde_path};
 use diskdiet::model::{Action, Category, Item, Risk};
-use diskdiet::scan::builds::{classify, format_age, scan, tilde_path};
+use diskdiet::scan::builds::{classify, scan};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

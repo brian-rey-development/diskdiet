@@ -1,6 +1,6 @@
 use super::ScanContext;
-use super::builds::tilde_path;
-use super::caches::{make_item, measured};
+use super::caches::measured;
+use crate::fmt::tilde_path;
 use crate::model::{Action, Category, Item, Risk};
 use crate::platform::trash_dir;
 
@@ -15,9 +15,9 @@ pub fn scan(ctx: &ScanContext) -> Vec<Item> {
         "Permanently deletes everything in {}",
         tilde_path(&trash, &ctx.home)
     );
-    vec![make_item(
+    vec![Item::new(
         Category::Trash,
-        TRASH_LABEL.to_string(),
+        TRASH_LABEL,
         detail,
         bytes,
         Risk::Review,

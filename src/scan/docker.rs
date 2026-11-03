@@ -1,6 +1,8 @@
 use super::ScanContext;
-use super::caches::{make_item, run_stdout};
-use crate::model::{Action, Category, Item, Risk};
+use crate::fmt::parse_size;
+use crate::model::{Action, Category, FSTRIM, Item, Risk};
+use crate::process::{DEFAULT_TIMEOUT, run_stdout};
+use crate::tools;
 use std::path::Path;
 
 const KIND_IMAGES: &str = "Images";
@@ -8,7 +10,7 @@ const KIND_BUILD_CACHE: &str = "Build Cache";
 const VM_TRIM_LABEL: &str = "Reclaim VM disk space";
 const VM_TRIM_DETAIL: &str = "returns freed space inside the VM to macOS";
 const FILTER_FLAG: &str = "--filter";
-const VM_TRIM_ARGS: [&str; 5] = ["ssh", "--", "sudo", "fstrim", "-a"];
+const VM_TRIM_ARGS: [&str; 5] = ["ssh", "--", "sudo", FSTRIM, "-a"];
 const LOCAL_SOCKET_SCHEME: &str = "unix://";
 const DOCKER_HOST_VAR: &str = "DOCKER_HOST";
 const CONTEXT_HOST_ARGS: [&str; 4] = [
@@ -16,14 +18,6 @@ const CONTEXT_HOST_ARGS: [&str; 4] = [
     "inspect",
     "--format",
     "{{.Endpoints.docker.Host}}",
-];
-
-const UNITS: [(&str, f64); 5] = [
-    ("b", 1.0),
-    ("kb", 1e3),
-    ("mb", 1e6),
-    ("gb", 1e9),
-    ("tb", 1e12),
 ];
 
 struct PruneSpec {
@@ -52,10 +46,10 @@ const PRUNES: [PruneSpec; 2] = [
 ];
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
-    let Some(docker) = ctx.tools.get("docker") else {
+    let Some(docker) = ctx.tools.get(tools::DOCKER) else {
         return Vec::new();
     };
-    if !is_local_daemon(docker) || run_stdout(docker, &["info"]).is_none() {
+    if !is_local_daemon(docker) || run_stdout(docker, &["info"], DEFAULT_TIMEOUT).is_none() {
         return Vec::new();
     }
     let mut items = prune_items(ctx, docker);
@@ -78,16 +72,8 @@ fn is_local_daemon(docker: &Path) -> bool {
     if let Ok(host) = std::env::var(DOCKER_HOST_VAR) {
         return is_local_endpoint(&host);
     }
-    run_stdout(docker, &CONTEXT_HOST_ARGS).is_some_and(|host| is_local_endpoint(&host))
-}
-
-pub fn parse_docker_size(text: &str) -> Option<u64> {
-    let token = text.split_whitespace().next()?;
-    let split = token.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
-    let number: f64 = token[..split].parse().ok()?;
-    let unit = token[split..].to_ascii_lowercase();
-    let (_, factor) = UNITS.iter().find(|(name, _)| *name == unit)?;
-    Some((number * factor).round() as u64)
+    run_stdout(docker, &CONTEXT_HOST_ARGS, DEFAULT_TIMEOUT)
+        .is_some_and(|host| is_local_endpoint(&host))
 }
 
 pub fn parse_docker_df(text: &str) -> Vec<(String, u64)> {
@@ -97,12 +83,16 @@ pub fn parse_docker_df(text: &str) -> Vec<(String, u64)> {
 fn parse_df_line(line: &str) -> Option<(String, u64)> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let kind = value.get("Type")?.as_str()?.to_string();
-    let bytes = parse_docker_size(value.get("Reclaimable")?.as_str()?)?;
+    let bytes = parse_size(value.get("Reclaimable")?.as_str()?)?;
     Some((kind, bytes))
 }
 
 fn prune_items(ctx: &ScanContext, docker: &Path) -> Vec<Item> {
-    let Some(df) = run_stdout(docker, &["system", "df", "--format", "{{json .}}"]) else {
+    let Some(df) = run_stdout(
+        docker,
+        &["system", "df", "--format", "{{json .}}"],
+        DEFAULT_TIMEOUT,
+    ) else {
         return Vec::new();
     };
     let usage = parse_docker_df(&df);
@@ -124,9 +114,9 @@ fn prune_item(ctx: &ScanContext, docker: &Path, spec: &PruneSpec, bytes: u64) ->
         args,
     };
     let detail = format!("{} {hours} hours ago, up to this size", spec.note);
-    make_item(
+    Item::new(
         Category::Docker,
-        spec.label.to_string(),
+        spec.label,
         detail,
         bytes,
         spec.risk,
@@ -135,16 +125,16 @@ fn prune_item(ctx: &ScanContext, docker: &Path, spec: &PruneSpec, bytes: u64) ->
 }
 
 fn vm_trim_item(ctx: &ScanContext) -> Option<Item> {
-    let colima = ctx.tools.get("colima")?;
-    run_stdout(colima, &["status"])?;
+    let colima = ctx.tools.get(tools::COLIMA)?;
+    run_stdout(colima, &["status"], DEFAULT_TIMEOUT)?;
     let action = Action::RunCommand {
         program: colima.to_path_buf(),
         args: VM_TRIM_ARGS.iter().map(ToString::to_string).collect(),
     };
-    Some(make_item(
+    Some(Item::new(
         Category::Docker,
-        VM_TRIM_LABEL.to_string(),
-        VM_TRIM_DETAIL.to_string(),
+        VM_TRIM_LABEL,
+        VM_TRIM_DETAIL,
         0,
         Risk::Safe,
         action,

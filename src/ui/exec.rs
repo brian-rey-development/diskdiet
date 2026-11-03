@@ -1,20 +1,18 @@
 use crate::actions;
-use crate::model::{Action, Item, Outcome};
+use crate::model::{Action, Item, Outcome, RunMode};
 use crate::scan::caches::owner_is_running_now;
 use crate::tools::Tools;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const FSTRIM: &str = "fstrim";
 const RANK_EMPTY_TRASH: u8 = 0;
 const RANK_NORMAL: u8 = 1;
 const RANK_VM_TRIM: u8 = 2;
 const INTERRUPT_EXIT_CODE: i32 = 130;
 const OWNER_RUNNING: &str = "its app is running, quit it and run diskdiet again";
-pub const STOPPED_REASON: &str = "stopped with Ctrl-C before it started";
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
-pub struct Executed<'a> {
+pub(crate) struct Executed<'a> {
     pub item: &'a Item,
     pub outcome: Outcome,
 }
@@ -22,7 +20,7 @@ pub struct Executed<'a> {
 fn rank(item: &Item) -> u8 {
     match &item.action {
         Action::EmptyTrash => RANK_EMPTY_TRASH,
-        Action::RunCommand { args, .. } if args.iter().any(|arg| arg == FSTRIM) => RANK_VM_TRIM,
+        action if action.is_vm_trim() => RANK_VM_TRIM,
         _ => RANK_NORMAL,
     }
 }
@@ -40,28 +38,31 @@ fn on_interrupt() {
     }
 }
 
-fn run_one(item: &Item, tools: &Tools, dry_run: bool) -> Outcome {
+fn run_one(item: &Item, tools: &Tools, mode: RunMode) -> Outcome {
     if STOP.load(Ordering::SeqCst) {
-        return Outcome::Skipped(STOPPED_REASON.to_string());
+        return Outcome::Stopped;
     }
-    if !dry_run && owner_is_running_now(item) {
-        return Outcome::Skipped(OWNER_RUNNING.to_string());
+    if mode == RunMode::Live && owner_is_running_now(item) {
+        return Outcome::Skipped(OWNER_RUNNING.to_owned());
     }
-    actions::execute(item, tools, dry_run)
+    actions::execute(item, tools, mode)
 }
 
-pub fn execute_all<'a>(items: &[&'a Item], tools: &Tools, dry_run: bool) -> Vec<Executed<'a>> {
+pub(crate) fn execute_all<'a>(
+    items: &[&'a Item],
+    tools: &Tools,
+    mode: RunMode,
+) -> Vec<Executed<'a>> {
     let _ = ctrlc::set_handler(on_interrupt);
     let bar = cliclack::progress_bar(items.len() as u64);
-    bar.start(if dry_run {
-        "Pretending to trim..."
-    } else {
-        "Trimming..."
+    bar.start(match mode {
+        RunMode::DryRun => "Pretending to trim...",
+        RunMode::Live => "Trimming...",
     });
     let mut executed = Vec::with_capacity(items.len());
     for item in execution_order(items) {
         bar.set_message(&item.label);
-        let outcome = run_one(item, tools, dry_run);
+        let outcome = run_one(item, tools, mode);
         executed.push(Executed { item, outcome });
         bar.inc(1);
     }

@@ -1,4 +1,4 @@
-use crate::model::Category;
+use crate::model::{Category, RunMode};
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -9,31 +9,51 @@ use std::path::PathBuf;
     about = "Your AI agents made your disk fat. Put it on a diet."
 )]
 pub struct Args {
-    /// Show what would be freed without deleting anything
-    #[arg(long)]
+    #[arg(long, help = "Show what would be freed without deleting anything")]
     pub dry_run: bool,
 
-    /// Print a non-interactive report and exit
-    #[arg(long)]
+    #[arg(long, help = "Print a non-interactive report and exit")]
     pub report: bool,
 
-    /// With --report, print JSON instead of a table
-    #[arg(long, requires = "report")]
+    #[arg(
+        long,
+        requires = "report",
+        help = "With --report, print JSON instead of a table"
+    )]
     pub json: bool,
 
-    /// Extra folder to scan for projects and worktrees (repeatable)
-    #[arg(long = "root", value_name = "DIR")]
+    #[arg(
+        long = "root",
+        value_name = "DIR",
+        help = "Extra folder to scan for projects and worktrees (repeatable)"
+    )]
     pub roots: Vec<PathBuf>,
 
-    /// Path to a config file (default: ~/.config/diskdiet/config.toml)
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Path to a config file (default: ~/.config/diskdiet/config.toml)"
+    )]
     pub config: Option<PathBuf>,
 
-    /// Only offer these categories, comma separated (for example build-artifacts,downloads)
-    #[arg(long, value_name = "CATEGORY", value_delimiter = ',')]
+    #[arg(
+        long,
+        value_name = "CATEGORY",
+        value_delimiter = ',',
+        help = "Only offer these categories, comma separated (for example build-artifacts,downloads)"
+    )]
     pub only: Vec<Category>,
 
-    /// Skip the share card at the end
-    #[arg(long)]
+    #[arg(long, help = "Skip the share card at the end")]
     pub no_share: bool,
+}
+
+impl Args {
+    pub(crate) fn run_mode(&self) -> RunMode {
+        if self.dry_run {
+            RunMode::DryRun
+        } else {
+            RunMode::Live
+        }
+    }
 }

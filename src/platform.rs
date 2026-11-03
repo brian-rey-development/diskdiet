@@ -19,6 +19,14 @@ mod paths {
 }
 
 pub const MACHINE: &str = paths::MACHINE;
+pub const NO_HOME: &str = "HOME is not set";
+const HOME_VAR: &str = "HOME";
+const MOUNT_ROOTS: [(&str, usize); 4] = [
+    ("/Volumes", 1),
+    ("/run/media", 2),
+    ("/media", 2),
+    ("/mnt", 1),
+];
 const XDG_DATA_HOME: &str = "XDG_DATA_HOME";
 const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
 const XDG_TRASH: &str = "Trash";
@@ -41,6 +49,27 @@ pub fn trash_dir(home: &Path) -> PathBuf {
     xdg_dir(XDG_DATA_HOME).map_or_else(|| home.join(paths::TRASH), |dir| dir.join(XDG_TRASH))
 }
 
-pub fn app_caches_dir(home: &Path) -> PathBuf {
+pub(crate) fn app_caches_dir(home: &Path) -> PathBuf {
     home.join(paths::APP_CACHES)
+}
+
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(HOME_VAR).map(PathBuf::from)
+}
+
+pub fn volume_is_mounted(path: &Path) -> bool {
+    for (root, depth) in MOUNT_ROOTS {
+        let Ok(rest) = path.strip_prefix(root) else {
+            continue;
+        };
+        let parts: Vec<_> = rest.components().take(depth).collect();
+        if parts.len() < depth {
+            return true;
+        }
+        return parts
+            .iter()
+            .fold(PathBuf::from(root), |acc, part| acc.join(part))
+            .exists();
+    }
+    true
 }

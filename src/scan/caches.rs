@@ -1,17 +1,15 @@
 use super::ScanContext;
-use super::builds::tilde_path;
-use crate::actions::is_safe_delete_target;
+use crate::fmt::tilde_path;
 use crate::model::{Action, Category, Item, Risk};
 use crate::platform::{IS_MACOS, app_caches_dir};
+use crate::process::{DEFAULT_TIMEOUT, run_stdout};
+use crate::safety::is_safe_delete_target;
 use crate::size::disk_usage;
-use crate::tools::run_with_deadline;
+use crate::tools;
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const MIN_APP_CACHE_BYTES: u64 = 50_000_000;
 const APPLE_CACHE_PREFIX: &str = "com.apple.";
 const UPDATER_SUFFIX: &str = "-updater";
@@ -56,6 +54,7 @@ const RUNNING_OWNERS: [(&str, &str); 7] = [
 const PATH_OWNERS: [(&str, &str); 1] = [("Library/Developer/Xcode/DerivedData", "/Xcode.app/")];
 const OWNER_RUNNING_NOTE: &str = "Its app is running, quit it first";
 const PS: &str = "ps";
+const PATH_MARKER_PREFIX: char = '/';
 const PS_ARGS: [&str; 3] = ["-A", "-o", "comm="];
 
 struct PathCache {
@@ -122,19 +121,19 @@ struct CommandCache {
 
 const COMMAND_CACHES: [CommandCache; 3] = [
     CommandCache {
-        tool: "uv",
+        tool: tools::UV,
         label: "uv cache",
         locate: &["cache", "dir"],
         clean: &["cache", "prune"],
     },
     CommandCache {
-        tool: "pnpm",
+        tool: tools::PNPM,
         label: "pnpm store",
         locate: &["store", "path"],
         clean: &["store", "prune"],
     },
     CommandCache {
-        tool: "brew",
+        tool: tools::BREW,
         label: "Homebrew downloads",
         locate: &["--cache"],
         clean: &["cleanup", "--prune=all"],
@@ -142,7 +141,7 @@ const COMMAND_CACHES: [CommandCache; 3] = [
 ];
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
-    let processes = run_stdout(Path::new(PS), &PS_ARGS).unwrap_or_default();
+    let processes = run_stdout(Path::new(PS), &PS_ARGS, DEFAULT_TIMEOUT).unwrap_or_default();
     let mut items = package_caches(ctx, &processes);
     items.extend(app_caches(ctx, &processes));
     items
@@ -157,11 +156,11 @@ fn has_known_owner(item: &Item) -> Option<&Path> {
     (named || located).then_some(path.as_path())
 }
 
-pub fn owner_is_running_now(item: &Item) -> bool {
+pub(crate) fn owner_is_running_now(item: &Item) -> bool {
     let Some(path) = has_known_owner(item) else {
         return false;
     };
-    let processes = run_stdout(Path::new(PS), &PS_ARGS).unwrap_or_default();
+    let processes = run_stdout(Path::new(PS), &PS_ARGS, DEFAULT_TIMEOUT).unwrap_or_default();
     owner_is_running(&item.label, &processes) || path_owner_is_running(path, &processes)
 }
 
@@ -183,16 +182,23 @@ pub fn app_cache_risk(name: &str) -> Option<Risk> {
     })
 }
 
-// macOS lists full executable paths, so markers there are path fragments. Linux lists bare names.
-pub fn process_matches(processes: &str, marker: &str) -> bool {
-    if marker.starts_with('/') {
-        return processes.contains(marker);
-    }
-    let suffix = format!("/{marker}");
+fn listing_contains_path_fragment(processes: &str, fragment: &str) -> bool {
+    processes.contains(fragment)
+}
+
+fn listing_has_bare_name(processes: &str, name: &str) -> bool {
+    let suffix = format!("/{name}");
     processes
         .lines()
         .map(str::trim)
-        .any(|line| line == marker || line.ends_with(&suffix))
+        .any(|line| line == name || line.ends_with(&suffix))
+}
+
+pub fn process_matches(processes: &str, marker: &str) -> bool {
+    if marker.starts_with(PATH_MARKER_PREFIX) {
+        return listing_contains_path_fragment(processes, marker);
+    }
+    listing_has_bare_name(processes, marker)
 }
 
 pub fn owner_is_running(name: &str, processes: &str) -> bool {
@@ -206,34 +212,6 @@ pub fn app_cache_risk_now(name: &str, processes: &str) -> Option<Risk> {
         Risk::Safe if owner_is_running(name, processes) => Some(Risk::Review),
         risk => Some(risk),
     }
-}
-
-pub(crate) fn make_item(
-    category: Category,
-    label: String,
-    detail: String,
-    bytes: u64,
-    risk: Risk,
-    action: Action,
-) -> Item {
-    Item {
-        category,
-        label,
-        detail,
-        bytes,
-        risk,
-        action,
-        preselected: risk == Risk::Safe,
-        typed_confirmation: None,
-    }
-}
-
-pub(crate) fn run_stdout(program: &Path, args: &[&str]) -> Option<String> {
-    let mut command = Command::new(program);
-    command.args(args);
-    let (status, stdout) = run_with_deadline(&mut command, COMMAND_TIMEOUT)?;
-    let text = String::from_utf8_lossy(&stdout).trim().to_string();
-    status.success().then_some(text)
 }
 
 pub(crate) fn measured(path: &Path) -> Option<u64> {
@@ -280,7 +258,7 @@ fn path_cache_item(ctx: &ScanContext, path: PathBuf, label: String, risk: Risk) 
     };
     let detail = format!("{note} · {}", tilde_path(&path, &ctx.home));
     let action = Action::DeletePath(path);
-    Some(make_item(
+    Some(Item::new(
         Category::PackageCaches,
         label,
         detail,
@@ -302,7 +280,7 @@ fn command_cache_item(ctx: &ScanContext, spec: &CommandCache) -> Option<Item> {
     );
     let label = spec.label.to_string();
     let action = clean_action(tool, spec);
-    Some(make_item(
+    Some(Item::new(
         Category::PackageCaches,
         label,
         detail,
@@ -313,7 +291,7 @@ fn command_cache_item(ctx: &ScanContext, spec: &CommandCache) -> Option<Item> {
 }
 
 fn located_path(tool: &Path, spec: &CommandCache) -> Option<PathBuf> {
-    let path = PathBuf::from(run_stdout(tool, spec.locate)?);
+    let path = PathBuf::from(run_stdout(tool, spec.locate, DEFAULT_TIMEOUT)?);
     path.is_absolute().then_some(path)
 }
 
@@ -356,7 +334,7 @@ fn app_cache_item(ctx: &ScanContext, path: PathBuf, risk: Risk) -> Option<Item> 
     };
     let detail = format!("{note} · {}", tilde_path(&path, &ctx.home));
     let action = Action::DeletePath(path);
-    Some(make_item(
+    Some(Item::new(
         Category::AppCaches,
         label,
         detail,

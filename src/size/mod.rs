@@ -1,4 +1,5 @@
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 mod bulk;
 
 use rayon::prelude::*;

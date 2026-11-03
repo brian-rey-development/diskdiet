@@ -1,3 +1,4 @@
+use crate::fmt::TILDE;
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -24,7 +25,6 @@ const DEFAULT_STALE_DOWNLOAD_DAYS: u64 = 90;
 const DEFAULT_STALE_NODE_MODULES_DAYS: u64 = 30;
 const DEFAULT_DOCKER_PRUNE_UNTIL_HOURS: u64 = 720;
 const DEFAULT_LOW_SPACE_WARNING_GB: u64 = 100;
-const TILDE: &str = "~";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -58,17 +58,18 @@ pub fn default_path(home: &Path) -> PathBuf {
     home.join(CONFIG_RELATIVE_PATH)
 }
 
-// Case-insensitive volumes make "code" and "Code" the same folder, so identity is (dev, ino).
-pub fn default_dev_roots(home: &Path) -> Vec<PathBuf> {
-    let mut seen = HashSet::new();
-    DEFAULT_DEV_ROOT_NAMES
-        .iter()
-        .map(|name| home.join(name))
+fn distinct_existing_dirs(candidates: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut seen_inodes = HashSet::new();
+    candidates
         .filter(|path| {
             std::fs::metadata(path)
-                .is_ok_and(|meta| meta.is_dir() && seen.insert((meta.dev(), meta.ino())))
+                .is_ok_and(|meta| meta.is_dir() && seen_inodes.insert((meta.dev(), meta.ino())))
         })
         .collect()
+}
+
+pub fn default_dev_roots(home: &Path) -> Vec<PathBuf> {
+    distinct_existing_dirs(DEFAULT_DEV_ROOT_NAMES.iter().map(|name| home.join(name)))
 }
 
 pub fn expand_tilde(path: &Path, home: &Path) -> PathBuf {

@@ -1,3 +1,4 @@
+use diskdiet::fmt::parse_size;
 use diskdiet::model::Risk;
 use diskdiet::scan::apps::{
     app_data_paths, latest_activity, parse_mdls_date, staleness, terminal_app_name,
@@ -5,7 +6,7 @@ use diskdiet::scan::apps::{
 use diskdiet::scan::caches::{
     app_cache_risk, app_cache_risk_now, owner_is_running, path_owner_is_running,
 };
-use diskdiet::scan::docker::{is_local_endpoint, parse_docker_df, parse_docker_size, prune_risk};
+use diskdiet::scan::docker::{is_local_endpoint, parse_docker_df, prune_risk};
 use diskdiet::scan::downloads::{classify_download, is_installer};
 use diskdiet::scan::models::{hf_label, parse_ollama_list};
 use std::path::Path;
@@ -16,20 +17,20 @@ const MDLS_SAMPLE_EPOCH: i64 = 1_778_980_370;
 
 #[test]
 fn docker_sizes_parse_with_and_without_percentage() {
-    assert_eq!(parse_docker_size("37.23GB (49%)"), Some(37_230_000_000));
-    assert_eq!(parse_docker_size("17.74GB"), Some(17_740_000_000));
-    assert_eq!(parse_docker_size("512MB"), Some(512_000_000));
-    assert_eq!(parse_docker_size("1.5kB"), Some(1_500));
-    assert_eq!(parse_docker_size("0B"), Some(0));
+    assert_eq!(parse_size("37.23GB (49%)"), Some(37_230_000_000));
+    assert_eq!(parse_size("17.74GB"), Some(17_740_000_000));
+    assert_eq!(parse_size("512MB"), Some(512_000_000));
+    assert_eq!(parse_size("1.5kB"), Some(1_500));
+    assert_eq!(parse_size("0B"), Some(0));
 }
 
 #[test]
 fn docker_sizes_reject_garbage() {
-    assert_eq!(parse_docker_size("garbage"), None);
-    assert_eq!(parse_docker_size(""), None);
-    assert_eq!(parse_docker_size("512"), None);
-    assert_eq!(parse_docker_size("12XB"), None);
-    assert_eq!(parse_docker_size("N/A"), None);
+    assert_eq!(parse_size("garbage"), None);
+    assert_eq!(parse_size(""), None);
+    assert_eq!(parse_size("512"), None);
+    assert_eq!(parse_size("12XB"), None);
+    assert_eq!(parse_size("N/A"), None);
 }
 
 #[test]

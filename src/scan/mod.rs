@@ -9,10 +9,12 @@ pub mod worktrees;
 
 use crate::{
     config::Config,
-    model::{Category, Item},
+    fsutil::lowercased,
+    model::{Action, Category, DELETE_CONFIRMATION, Item, Risk},
     tools::Tools,
 };
-use std::path::PathBuf;
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
 
 const MIN_ITEM_BYTES: u64 = 1_000_000;
 
@@ -24,40 +26,72 @@ pub struct ScanContext {
 
 pub type ScanFn = fn(&ScanContext) -> Vec<Item>;
 
-pub const SCANNERS: [(&str, ScanFn); 8] = [
-    ("worktrees", worktrees::scan),
-    ("builds", builds::scan),
-    ("caches", caches::scan),
-    ("docker", docker::scan),
-    ("models", models::scan),
-    ("apps", apps::scan),
-    ("downloads", downloads::scan),
-    ("trash", trash::scan),
-];
-
-pub fn scanner_categories(name: &str) -> &'static [Category] {
-    match name {
-        "worktrees" => &[Category::AgentWorktrees],
-        "builds" => &[Category::BuildArtifacts, Category::PythonEnvs],
-        "caches" => &[Category::PackageCaches, Category::AppCaches],
-        "docker" => &[Category::Docker],
-        "models" => &[Category::AiModels],
-        "apps" => &[Category::UnusedApps],
-        "downloads" => &[Category::Downloads],
-        "trash" => &[Category::Trash],
-        _ => &[],
-    }
+pub struct Scanner {
+    pub name: &'static str,
+    pub categories: &'static [Category],
+    pub scan: ScanFn,
 }
+
+pub const SCANNERS: &[Scanner] = &[
+    Scanner {
+        name: "worktrees",
+        categories: &[Category::AgentWorktrees],
+        scan: worktrees::scan,
+    },
+    Scanner {
+        name: "builds",
+        categories: &[Category::BuildArtifacts, Category::PythonEnvs],
+        scan: builds::scan,
+    },
+    Scanner {
+        name: "caches",
+        categories: &[Category::PackageCaches, Category::AppCaches],
+        scan: caches::scan,
+    },
+    Scanner {
+        name: "docker",
+        categories: &[Category::Docker],
+        scan: docker::scan,
+    },
+    Scanner {
+        name: "models",
+        categories: &[Category::AiModels],
+        scan: models::scan,
+    },
+    Scanner {
+        name: "apps",
+        categories: &[Category::UnusedApps],
+        scan: apps::scan,
+    },
+    Scanner {
+        name: "downloads",
+        categories: &[Category::Downloads],
+        scan: downloads::scan,
+    },
+    Scanner {
+        name: "trash",
+        categories: &[Category::Trash],
+        scan: trash::scan,
+    },
+];
 
 fn wanted(only: &[Category], category: Category) -> bool {
     only.is_empty() || only.contains(&category)
+}
+
+fn is_selected(scanner: &Scanner, only: &[Category]) -> bool {
+    only.is_empty()
+        || scanner
+            .categories
+            .iter()
+            .any(|category| only.contains(category))
 }
 
 pub fn scan_all(ctx: &ScanContext) -> Vec<Item> {
     scan_only(ctx, &[])
 }
 
-pub fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
+pub(crate) fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
     let home = ctx.home.clone();
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -69,13 +103,10 @@ pub fn scan_only(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
 }
 
 fn scan_quietly(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
-    use rayon::prelude::*;
     let mut items: Vec<Item> = SCANNERS
         .par_iter()
-        .filter(|(name, _)| {
-            only.is_empty() || scanner_categories(name).iter().any(|c| only.contains(c))
-        })
-        .flat_map(|(_, scan)| run_scanner(*scan, ctx))
+        .filter(|scanner| is_selected(scanner, only))
+        .flat_map(|scanner| run_scanner(scanner.scan, ctx))
         .filter(|item| wanted(only, item.category) && is_kept(item, &ctx.config.exclude))
         .collect();
     inherit_child_risk(&mut items);
@@ -83,23 +114,18 @@ fn scan_quietly(ctx: &ScanContext, only: &[Category]) -> Vec<Item> {
     items
 }
 
-fn covering_path(action: &crate::model::Action) -> Option<&std::path::Path> {
-    use crate::model::Action;
-    match action {
-        Action::DeletePath(path) | Action::MoveToTrash(path) => Some(path),
-        _ => None,
-    }
+fn covering_path(action: &Action) -> Option<&Path> {
+    action.path().filter(|_| action.deletes_path())
 }
 
-fn nested_path(action: &crate::model::Action) -> Option<&std::path::Path> {
-    use crate::model::Action;
+fn nested_path(action: &Action) -> Option<&Path> {
     match action {
         Action::PruneWorktrees { .. } => None,
-        other => action_path(other),
+        other => other.path(),
     }
 }
 
-fn riskiest_child(items: &[Item], parent: &std::path::Path) -> Option<crate::model::Risk> {
+fn riskiest_child(items: &[Item], parent: &Path) -> Option<Risk> {
     items
         .iter()
         .filter_map(|item| nested_path(&item.action).map(|path| (path, item.risk)))
@@ -109,8 +135,6 @@ fn riskiest_child(items: &[Item], parent: &std::path::Path) -> Option<crate::mod
 }
 
 pub fn inherit_child_risk(items: &mut [Item]) {
-    use crate::model::Risk;
-    const DELETE_WORD: &str = "delete";
     let raised: Vec<Option<Risk>> = items
         .iter()
         .map(|item| covering_path(&item.action).and_then(|path| riskiest_child(items, path)))
@@ -123,7 +147,7 @@ pub fn inherit_child_risk(items: &mut [Item]) {
         item.risk = child;
         item.preselected = false;
         if child == Risk::Danger {
-            item.typed_confirmation = Some(DELETE_WORD.to_string());
+            item.typed_confirmation = Some(DELETE_CONFIRMATION.to_owned());
         }
     }
 }
@@ -141,38 +165,14 @@ pub fn compare_items(a: &Item, b: &Item) -> std::cmp::Ordering {
 }
 
 pub fn is_kept(item: &Item, exclude: &[PathBuf]) -> bool {
-    if item.bytes < MIN_ITEM_BYTES && !ignores_size_floor(&item.action) {
+    if item.bytes < MIN_ITEM_BYTES && !item.action.ignores_size_floor() {
         return false;
     }
-    let Some(path) = action_path(&item.action).map(folded) else {
+    let Some(path) = item.action.path().map(lowercased) else {
         return true;
     };
     !exclude
         .iter()
-        .map(|ex| folded(ex))
-        .any(|ex| path.starts_with(&ex) || ex.starts_with(&path))
-}
-
-fn folded(path: &std::path::Path) -> PathBuf {
-    PathBuf::from(path.to_string_lossy().to_lowercase())
-}
-
-fn ignores_size_floor(action: &crate::model::Action) -> bool {
-    use crate::model::Action;
-    const FSTRIM_ARG: &str = "fstrim";
-    match action {
-        Action::PruneWorktrees { .. } | Action::RemoveWorktree { .. } | Action::EmptyTrash => true,
-        Action::RunCommand { args, .. } => args.iter().any(|arg| arg == FSTRIM_ARG),
-        _ => false,
-    }
-}
-
-fn action_path(action: &crate::model::Action) -> Option<&std::path::Path> {
-    use crate::model::Action;
-    match action {
-        Action::DeletePath(path) | Action::MoveToTrash(path) => Some(path),
-        Action::RemoveWorktree { worktree, .. } => Some(worktree),
-        Action::PruneWorktrees { repo } => Some(repo),
-        Action::RunCommand { .. } | Action::EmptyTrash => None,
-    }
+        .map(|excluded| lowercased(excluded))
+        .any(|excluded| path.starts_with(&excluded) || excluded.starts_with(&path))
 }

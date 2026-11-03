@@ -1,8 +1,9 @@
 use super::ScanContext;
-use super::builds::tilde_path;
-use super::caches::{make_item, measured, run_stdout};
-use super::docker::parse_docker_size;
+use super::caches::measured;
+use crate::fmt::{parse_size, tilde_path};
 use crate::model::{Action, Category, Item, Risk};
+use crate::process::{DEFAULT_TIMEOUT, run_stdout};
+use crate::tools;
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,15 +44,15 @@ fn parse_ollama_row(line: &str) -> Option<(String, String, u64)> {
     if columns.len() < OLLAMA_MIN_COLUMNS || columns[0] == OLLAMA_HEADER {
         return None;
     }
-    let bytes = parse_docker_size(&format!("{}{}", columns[2], columns[3]))?;
+    let bytes = parse_size(&format!("{}{}", columns[2], columns[3]))?;
     Some((columns[0].to_string(), columns[1].to_string(), bytes))
 }
 
 fn ollama_items(ctx: &ScanContext) -> Vec<Item> {
-    let Some(ollama) = ctx.tools.get("ollama") else {
+    let Some(ollama) = ctx.tools.get(tools::OLLAMA) else {
         return Vec::new();
     };
-    let Some(listing) = run_stdout(ollama, &["list"]) else {
+    let Some(listing) = run_stdout(ollama, &["list"], DEFAULT_TIMEOUT) else {
         return Vec::new();
     };
     parse_ollama_list(&listing)
@@ -70,7 +71,7 @@ fn ollama_item(ollama: &Path, names: &[String], bytes: u64) -> Item {
     let name = names.join(", ");
     let first = names.first().map_or("", String::as_str);
     let detail = format!("Ollama model · re-download with `ollama pull {first}`");
-    make_item(
+    Item::new(
         Category::AiModels,
         name,
         detail,
@@ -96,7 +97,7 @@ fn huggingface_item(ctx: &ScanContext, path: PathBuf) -> Option<Item> {
     let bytes = measured(&path)?;
     let detail = format!("Hugging Face model · {}", tilde_path(&path, &ctx.home));
     let action = Action::DeletePath(path);
-    Some(make_item(
+    Some(Item::new(
         Category::AiModels,
         label,
         detail,

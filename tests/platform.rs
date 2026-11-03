@@ -1,10 +1,9 @@
 use anyhow::{Result, anyhow};
 use diskdiet::freedesktop_trash::{empty, encode_path, info_text, move_to};
 use diskdiet::model::Risk;
-use diskdiet::platform::{self, IS_MACOS};
+use diskdiet::platform::{self, IS_MACOS, volume_is_mounted};
 use diskdiet::scan::caches::process_matches;
 use diskdiet::scan::downloads::{classify_download, is_installer};
-use diskdiet::scan::worktrees::volume_is_mounted;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;

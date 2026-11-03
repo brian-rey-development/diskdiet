@@ -1,4 +1,5 @@
-use crate::model::{Category, Item, Risk};
+use crate::fmt::count_noun;
+use crate::model::{Category, Item, Risk, RunMode};
 use crate::size::format_bytes;
 use console::style;
 use std::io;
@@ -46,12 +47,15 @@ fn build_prompt(category: Category, entries: &[(usize, &Item)]) -> cliclack::Mul
     prompt.initial_values(initial.collect())
 }
 
-pub fn pick_category(category: Category, entries: &[(usize, &Item)]) -> io::Result<Vec<usize>> {
+pub(crate) fn pick_category(
+    category: Category,
+    entries: &[(usize, &Item)],
+) -> io::Result<Vec<usize>> {
     cliclack::log::remark(category.blurb())?;
     build_prompt(category, entries).interact()
 }
 
-pub fn confirm_typed(item: &Item) -> io::Result<bool> {
+pub(crate) fn confirm_typed(item: &Item) -> io::Result<bool> {
     let Some(word) = &item.typed_confirmation else {
         return Ok(true);
     };
@@ -83,7 +87,7 @@ fn confirm_dangerous(items: &[Item], picked: Vec<usize>) -> io::Result<Vec<usize
     Ok(confirmed)
 }
 
-pub fn pick_all(items: &[Item]) -> io::Result<Vec<usize>> {
+pub(crate) fn pick_all(items: &[Item]) -> io::Result<Vec<usize>> {
     let mut chosen = Vec::new();
     for category in Category::ALL {
         let entries: Vec<(usize, &Item)> = items
@@ -99,20 +103,20 @@ pub fn pick_all(items: &[Item]) -> io::Result<Vec<usize>> {
     confirm_dangerous(items, chosen)
 }
 
-pub fn confirm_prompt(count: usize, bytes: u64, dry_run: bool) -> String {
-    if dry_run {
-        return "Dry run: nothing will be deleted. Continue?".to_string();
+pub fn confirm_prompt(count: usize, bytes: u64, mode: RunMode) -> String {
+    if mode == RunMode::DryRun {
+        return "Dry run: nothing will be deleted. Continue?".to_owned();
     }
-    let noun = if count == 1 { "item" } else { "items" };
     format!(
-        "Delete {count} {noun} ({})?",
+        "Delete {} ({})?",
+        count_noun(count, "item", "items"),
         style(format_bytes(bytes)).bold()
     )
 }
 
-pub fn confirm_all(selected: &[&Item], dry_run: bool) -> io::Result<bool> {
+pub(crate) fn confirm_all(selected: &[&Item], mode: RunMode) -> io::Result<bool> {
     let bytes = selected.iter().map(|item| item.bytes).sum();
-    cliclack::confirm(confirm_prompt(selected.len(), bytes, dry_run))
+    cliclack::confirm(confirm_prompt(selected.len(), bytes, mode))
         .initial_value(false)
         .interact()
 }

@@ -3,10 +3,11 @@
 use diskdiet::config::{self, Config};
 use diskdiet::disk::free_bytes;
 use diskdiet::log;
-use diskdiet::model::{Action, Category, Item, Risk};
+use diskdiet::model::{Action, Category, Item, Removal, Risk};
 use diskdiet::scan::{ScanContext, compare_items, inherit_child_risk, is_kept, scan_all};
 use diskdiet::size::{disk_usage, format_bytes};
-use diskdiet::tools::{Tools, find_on_path, last_absolute_path, marked_path};
+use diskdiet::time;
+use diskdiet::tools::{Tools, find_on_path, last_absolute_path, path_from_login_shell_output};
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -292,10 +293,10 @@ fn disk_usage_counts_allocated_blocks_of_a_sparse_file() {
 fn login_shell_output_yields_the_marked_path_despite_rc_noise() {
     let noisy = "Welcome back!\n\n__DISKDIET_PATH__=/opt/homebrew/bin:/usr/bin\nbye\n";
     assert_eq!(
-        marked_path(noisy),
+        path_from_login_shell_output(noisy),
         Some(std::ffi::OsString::from("/opt/homebrew/bin:/usr/bin"))
     );
-    assert_eq!(marked_path("no marker here"), None);
+    assert_eq!(path_from_login_shell_output("no marker here"), None);
 }
 
 #[test]
@@ -335,9 +336,9 @@ fn log_record_appends_timestamped_lines_and_creates_folders() {
 
 #[test]
 fn format_timestamp_handles_known_instants() {
-    assert_eq!(log::format_timestamp(0), "1970-01-01 00:00:00");
-    assert_eq!(log::format_timestamp(951_827_696), "2000-02-29 12:34:56");
-    assert_eq!(log::format_timestamp(1_767_225_599), "2025-12-31 23:59:59");
+    assert_eq!(time::format_timestamp(0), "1970-01-01 00:00:00");
+    assert_eq!(time::format_timestamp(951_827_696), "2000-02-29 12:34:56");
+    assert_eq!(time::format_timestamp(1_767_225_599), "2025-12-31 23:59:59");
 }
 
 #[test]
@@ -462,7 +463,7 @@ fn is_kept_keeps_tiny_worktrees() {
     let worktree = Action::RemoveWorktree {
         repo: PathBuf::from("/r"),
         worktree: PathBuf::from("/r/wt"),
-        force: false,
+        removal: Removal::Rechecked,
     };
     assert!(is_kept(
         &item(Category::AgentWorktrees, Risk::Danger, 1, worktree),

@@ -1,9 +1,10 @@
-use super::exec::{Executed, STOPPED_REASON};
+use super::exec::Executed;
 use super::share;
 use crate::cli::Args;
-use crate::disk::free_bytes;
-use crate::model::{Action, Outcome};
-use crate::platform::IS_MACOS;
+use crate::disk::{free_bytes, total_bytes};
+use crate::fmt::{count_noun, tilde_path};
+use crate::model::{Action, Outcome, RunMode};
+use crate::platform::{self, IS_MACOS};
 use crate::size::format_bytes;
 use console::style;
 use std::path::Path;
@@ -22,19 +23,14 @@ const FDA_STEPS: &str = "macOS blocked some items.\n\
 \n\
 If a prompt asks to let your terminal control Finder, allow it.";
 
-pub fn total_bytes(path: &Path) -> Option<u64> {
-    let stats = rustix::fs::statvfs(path).ok()?;
-    Some(stats.f_blocks.saturating_mul(stats.f_frsize))
-}
-
-pub fn free_percent(free: u64, total: u64) -> u64 {
+pub(crate) fn free_percent(free: u64, total: u64) -> u64 {
     if total == 0 {
         return 0;
     }
     (free as f64 / total as f64 * PERCENT).round() as u64
 }
 
-pub fn disk_status(free: u64, total: Option<u64>) -> String {
+pub(crate) fn disk_status(free: u64, total: Option<u64>) -> String {
     let Some(total) = total else {
         return format!("Your disk now has {} free", format_bytes(free));
     };
@@ -47,23 +43,16 @@ pub fn disk_status(free: u64, total: Option<u64>) -> String {
     )
 }
 
-fn is_stopped(outcome: &Outcome) -> bool {
-    matches!(outcome, Outcome::Skipped(why) if why == STOPPED_REASON)
-}
-
 fn report_stopped(executed: &[Executed]) -> std::io::Result<()> {
-    let stopped = executed.iter().filter(|e| is_stopped(&e.outcome)).count();
+    let stopped = executed
+        .iter()
+        .filter(|e| e.outcome == Outcome::Stopped)
+        .count();
     if stopped == 0 {
         return Ok(());
     }
-    let noun = if stopped == 1 {
-        "item was"
-    } else {
-        "items were"
-    };
-    cliclack::log::warning(format!(
-        "Stopped with Ctrl-C. {stopped} {noun} left untouched."
-    ))
+    let subject = count_noun(stopped, "item was", "items were");
+    cliclack::log::warning(format!("Stopped with Ctrl-C. {subject} left untouched."))
 }
 
 fn problem_lines(executed: &[Executed]) -> Vec<String> {
@@ -71,28 +60,27 @@ fn problem_lines(executed: &[Executed]) -> Vec<String> {
         .iter()
         .filter_map(|e| match &e.outcome {
             Outcome::Failed(why) => Some(format!("{}: {why}", e.item.label)),
-            Outcome::Skipped(why) if !is_stopped(&e.outcome) => {
-                Some(format!("{}: skipped, {why}", e.item.label))
-            }
+            Outcome::Skipped(why) => Some(format!("{}: skipped, {why}", e.item.label)),
             _ => None,
         })
         .collect()
 }
 
-fn report_failures(executed: &[Executed]) -> std::io::Result<()> {
+fn report_failures(executed: &[Executed], home: &Path) -> std::io::Result<()> {
     let lines = problem_lines(executed);
     for line in lines.iter().take(MAX_LISTED_FAILURES) {
         cliclack::log::warning(line)?;
     }
     let hidden = lines.len().saturating_sub(MAX_LISTED_FAILURES);
     if hidden > 0 {
-        cliclack::log::warning(format!("{hidden} more in ~/Library/Logs/diskdiet.log"))?;
+        let log_file = tilde_path(&platform::log_path(home), home);
+        cliclack::log::warning(format!("{hidden} more in {log_file}"))?;
     }
     Ok(())
 }
 
-fn report_problems(executed: &[Executed]) -> std::io::Result<()> {
-    report_failures(executed)?;
+fn report_problems(executed: &[Executed], home: &Path) -> std::io::Result<()> {
+    report_failures(executed, home)?;
     report_stopped(executed)?;
     let blocked = executed
         .iter()
@@ -127,10 +115,10 @@ fn count_done(executed: &[Executed]) -> usize {
 
 fn celebrate(freed: u64, removed: usize) -> std::io::Result<()> {
     let big = style(format_bytes(freed)).green().bold();
-    let noun = if removed == 1 { "item" } else { "items" };
+    let removed_items = count_noun(removed, "item", "items");
     cliclack::note(
         "Diet complete",
-        format!("{big} freed\n{removed} {noun} removed"),
+        format!("{big} freed\n{removed_items} removed"),
     )
 }
 
@@ -140,14 +128,14 @@ fn print_share(freed: u64, before_free: u64, after_free: u64) -> anyhow::Result<
     super::report::write_ignoring_closed_pipe(&text)
 }
 
-pub fn finish(
+pub(crate) fn finish(
     args: &Args,
     home: &Path,
     executed: &[Executed],
     before_free: u64,
 ) -> anyhow::Result<()> {
-    report_problems(executed)?;
-    if args.dry_run {
+    report_problems(executed, home)?;
+    if args.run_mode() == RunMode::DryRun {
         return finish_dry_run(executed);
     }
     let after_free = free_bytes(home)?;

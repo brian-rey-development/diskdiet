@@ -2,11 +2,11 @@ mod common;
 
 use anyhow::{Result, anyhow};
 use common::{add_worktree, commit_file, init_repo, temp_root, test_ctx, write_file};
-use diskdiet::model::{Action, Category, Item, Risk};
-use diskdiet::scan::worktrees::{
-    Assessment, assess, base_branch, count_status, find_repos, inspect, is_build_output,
-    parse_porcelain, scan,
-};
+use diskdiet::git::ignored::is_build_output;
+use diskdiet::git::porcelain::parse_porcelain;
+use diskdiet::git::status::count_status;
+use diskdiet::model::{Action, Category, Item, Removal, Risk};
+use diskdiet::scan::worktrees::{Assessment, assess, base_branch, find_repos, inspect, scan};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -106,7 +106,7 @@ fn safe_worktree_is_preselected_in_scan() -> Result<()> {
         Action::RemoveWorktree {
             repo: fs::canonicalize(repo)?,
             worktree: wt,
-            force: false,
+            removal: Removal::Rechecked,
         }
     );
     assert!(item.detail.starts_with("merged · 0 ahead"));
@@ -320,7 +320,10 @@ fn worktrees_with_submodules_are_danger_because_git_needs_force() -> Result<()> 
     let item = item_for(&scan_items(&root, vec![root.join("repo")]), "feature")?.clone();
     assert!(matches!(
         item.action,
-        Action::RemoveWorktree { force: true, .. }
+        Action::RemoveWorktree {
+            removal: Removal::Forced,
+            ..
+        }
     ));
     Ok(())
 }

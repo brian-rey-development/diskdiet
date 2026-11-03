@@ -1,37 +1,19 @@
 use super::ScanContext;
-use super::builds::{format_age, plural_s, secs_since, tilde_path};
-use crate::model::{Action, Category, Item, Risk};
+use crate::fmt::{format_age, plural_s, tilde_path};
+use crate::fsutil::{canonical_or_self, child_dirs};
+use crate::git;
+use crate::git::porcelain::{BRANCH_REF_PREFIX, WorktreeEntry, parse_porcelain};
+use crate::git::run as run_git;
+use crate::git::status::local_changes;
+use crate::model::{Action, Category, Item, Removal, Risk};
+use crate::platform::volume_is_mounted;
 use crate::size::{disk_usage, format_bytes};
-use crate::tools::run_with_deadline;
+use crate::time::secs_since;
 use rayon::prelude::*;
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
-const BUILD_OUTPUT_DIRS: [&str; 17] = [
-    "target",
-    "node_modules",
-    ".next",
-    ".turbo",
-    "dist",
-    "build",
-    ".venv",
-    "__pycache__",
-    "coverage",
-    ".cache",
-    ".parcel-cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    ".svelte-kit",
-    ".nuxt",
-    ".tanstack",
-];
-const IGNORABLE_FILES: [&str; 3] = [".DS_Store", "next-env.d.ts", ".eslintcache"];
-const IGNORABLE_EXTENSIONS: [&str; 2] = [".tsbuildinfo", ".pyc"];
-const GENERATED_DIR_PAIRS: [[&str; 2]; 2] = [[".husky", "_"], ["src-tauri", "gen"]];
 const BASE_CANDIDATES: [&str; 4] = ["main", "master", "development", "develop"];
 const WALK_SKIPPED_DIRS: [&str; 6] = [
     "node_modules",
@@ -42,49 +24,9 @@ const WALK_SKIPPED_DIRS: [&str; 6] = [
     ".worktrees",
 ];
 const CLAUDE_WORKTREES: &str = ".claude/worktrees";
-const STATUS_ARGS: [&str; 6] = [
-    "status",
-    "--porcelain=v1",
-    "-z",
-    "--ignored=matching",
-    "--untracked-files=normal",
-    "--ignore-submodules=none",
-];
-const LS_FILES_ARGS: [&str; 3] = ["ls-files", "-v", "-z"];
-const SKIP_WORKTREE_TAG: &str = "S";
 const SUBMODULES_FILE: &str = ".gitmodules";
-const GIT_TIMEOUT: Duration = Duration::from_secs(30);
-const NO_FSMONITOR: [&str; 2] = ["-c", "core.fsmonitor=false"];
-const IGNORED_CODE: &str = "!!";
-const STATUS_CODE_LEN: usize = 2;
-const STATUS_PATH_OFFSET: usize = 3;
 const MAX_WALK_DEPTH: usize = 8;
 const UNKNOWN_AHEAD: u32 = 1;
-const DELETE_WORD: &str = "delete";
-const MOUNT_ROOTS: [(&str, usize); 4] = [
-    ("/Volumes", 1),
-    ("/run/media", 2),
-    ("/media", 2),
-    ("/mnt", 1),
-];
-const BRANCH_REF_PREFIX: &str = "refs/heads/";
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct WorktreeEntry {
-    pub path: PathBuf,
-    pub head: Option<String>,
-    pub branch: Option<String>,
-    pub detached: bool,
-    pub bare: bool,
-    pub locked: bool,
-    pub prunable: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct StatusCounts {
-    pub dirty: u32,
-    pub risky_ignored: u32,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assessment {
@@ -110,98 +52,6 @@ pub fn assess(ahead: u32, dirty: u32, risky_ignored: u32) -> Risk {
         return Risk::Danger;
     }
     if ahead > 0 { Risk::Review } else { Risk::Safe }
-}
-
-fn is_generated_file(name: &str) -> bool {
-    IGNORABLE_FILES.contains(&name) || IGNORABLE_EXTENSIONS.iter().any(|ext| name.ends_with(ext))
-}
-
-pub fn is_build_output(path: &str) -> bool {
-    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let Some(last) = parts.last() else {
-        return false;
-    };
-    let in_generated_dir = parts
-        .windows(2)
-        .any(|pair| GENERATED_DIR_PAIRS.iter().any(|known| known == pair));
-    if in_generated_dir {
-        return true;
-    }
-    if !path.ends_with('/') {
-        return is_generated_file(last);
-    }
-    BUILD_OUTPUT_DIRS.contains(last)
-}
-
-fn apply_line(entry: &mut WorktreeEntry, line: &str) {
-    let (key, value) = line.split_once(' ').unwrap_or((line, ""));
-    match key {
-        "worktree" if !value.starts_with('"') => entry.path = PathBuf::from(value),
-        "HEAD" => entry.head = Some(value.to_string()),
-        "branch" => {
-            let name = value.strip_prefix(BRANCH_REF_PREFIX).unwrap_or(value);
-            entry.branch = Some(name.to_string());
-        }
-        "detached" => entry.detached = true,
-        "bare" => entry.bare = true,
-        "locked" => entry.locked = true,
-        "prunable" => entry.prunable = true,
-        _ => {}
-    }
-}
-
-fn parse_block(block: &str) -> Option<WorktreeEntry> {
-    let mut entry = WorktreeEntry::default();
-    for line in block.lines() {
-        apply_line(&mut entry, line);
-    }
-    (!entry.path.as_os_str().is_empty()).then_some(entry)
-}
-
-pub fn parse_porcelain(text: &str) -> Vec<WorktreeEntry> {
-    text.split("\n\n").filter_map(parse_block).collect()
-}
-
-pub fn count_status(text: &str) -> StatusCounts {
-    let mut counts = StatusCounts::default();
-    let mut fields = text.split('\0').filter(|field| !field.is_empty());
-    while let Some(field) = fields.next() {
-        let (Some(code), Some(path)) = (
-            field.get(..STATUS_CODE_LEN),
-            field.get(STATUS_PATH_OFFSET..),
-        ) else {
-            counts.dirty += 1;
-            continue;
-        };
-        if code == IGNORED_CODE {
-            counts.risky_ignored += u32::from(!is_build_output(path));
-            continue;
-        }
-        counts.dirty += 1;
-        if code.contains(['R', 'C']) {
-            fields.next();
-        }
-    }
-    counts
-}
-
-fn git_command(git: &Path, dir: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new(git);
-    command
-        .arg("-C")
-        .arg(dir)
-        .args(NO_FSMONITOR)
-        .args(args)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    command
-}
-
-fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Option<String> {
-    let (status, stdout) = run_with_deadline(&mut git_command(git, dir, args), GIT_TIMEOUT)?;
-    status
-        .success()
-        .then(|| String::from_utf8_lossy(&stdout).into_owned())
 }
 
 fn ref_exists(git: &Path, repo: &Path, name: &str) -> bool {
@@ -238,32 +88,6 @@ fn last_commit_secs(git: &Path, worktree: &Path) -> Option<u64> {
     Some(secs_since(committed))
 }
 
-fn is_hidden_edit(field: &str, worktree: &Path) -> bool {
-    let Some((tag, path)) = field.split_once(' ') else {
-        return false;
-    };
-    let assume_unchanged = !tag.is_empty() && tag.chars().all(|c| c.is_ascii_lowercase());
-    (tag == SKIP_WORKTREE_TAG || assume_unchanged) && worktree.join(path).exists()
-}
-
-pub fn count_hidden_edits(listing: &str, worktree: &Path) -> u32 {
-    let hidden = listing
-        .split('\0')
-        .filter(|field| is_hidden_edit(field, worktree))
-        .count();
-    u32::try_from(hidden).unwrap_or(u32::MAX)
-}
-
-pub fn local_changes(git: &Path, worktree: &Path) -> Option<StatusCounts> {
-    let status = run_git(git, worktree, &STATUS_ARGS)?;
-    let listing = run_git(git, worktree, &LS_FILES_ARGS)?;
-    let counts = count_status(&status);
-    Some(StatusCounts {
-        dirty: counts.dirty + count_hidden_edits(&listing, worktree),
-        risky_ignored: counts.risky_ignored,
-    })
-}
-
 pub fn inspect(git: &Path, worktree: &Path, base: Option<&str>) -> Option<Assessment> {
     let counts = local_changes(git, worktree)?;
     Some(Assessment {
@@ -273,10 +97,6 @@ pub fn inspect(git: &Path, worktree: &Path, base: Option<&str>) -> Option<Assess
         has_submodules: worktree.join(SUBMODULES_FILE).is_file(),
         last_commit_secs: last_commit_secs(git, worktree),
     })
-}
-
-fn canonical(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn is_agent_worktree_dir(path: &Path) -> bool {
@@ -289,23 +109,12 @@ fn should_descend(child: &Path) -> bool {
     !skipped && !is_agent_worktree_dir(child) && !child.join(".git").is_file()
 }
 
-fn child_dirs(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .collect()
-}
-
 fn walk_repos(dir: &Path, depth: usize, exclude: &[PathBuf], found: &mut BTreeSet<PathBuf>) {
     if depth > MAX_WALK_DEPTH || exclude.iter().any(|path| dir.starts_with(path)) {
         return;
     }
     if dir.join(".git").is_dir() {
-        found.insert(canonical(dir));
+        found.insert(canonical_or_self(dir));
     }
     for child in child_dirs(dir).iter().filter(|c| should_descend(c)) {
         walk_repos(child, depth + 1, exclude, found);
@@ -318,23 +127,6 @@ pub fn find_repos(roots: &[PathBuf], exclude: &[PathBuf]) -> Vec<PathBuf> {
         walk_repos(root, 0, exclude, &mut found);
     }
     found.into_iter().collect()
-}
-
-pub fn volume_is_mounted(path: &Path) -> bool {
-    for (root, depth) in MOUNT_ROOTS {
-        let Ok(rest) = path.strip_prefix(root) else {
-            continue;
-        };
-        let parts: Vec<_> = rest.components().take(depth).collect();
-        if parts.len() < depth {
-            return true;
-        }
-        return parts
-            .iter()
-            .fold(PathBuf::from(root), |acc, part| acc.join(part))
-            .exists();
-    }
-    true
 }
 
 fn folder_is_missing(entry: &WorktreeEntry) -> bool {
@@ -390,24 +182,24 @@ fn worktree_item(
     let assessment = inspect(&ctx.git, &entry.path, base)?;
     let bytes = disk_usage(std::slice::from_ref(&entry.path));
     let detail = describe(&assessment, bytes, &entry.path, &ctx.home);
+    let risk = assessment.risk();
+    let removal = match risk {
+        Risk::Danger => Removal::Forced,
+        _ => Removal::Rechecked,
+    };
     let action = Action::RemoveWorktree {
         repo: repo.to_path_buf(),
         worktree: entry.path.clone(),
-        force: assessment.risk() == Risk::Danger,
+        removal,
     };
-    Some(risky_item(branch, detail, bytes, assessment.risk(), action))
+    Some(risky_item(branch, detail, bytes, risk, action))
 }
 
 fn risky_item(label: &str, detail: String, bytes: u64, risk: Risk, action: Action) -> Item {
-    Item {
-        category: Category::AgentWorktrees,
-        label: label.to_string(),
-        detail,
-        bytes,
-        risk,
-        action,
-        preselected: risk == Risk::Safe,
-        typed_confirmation: (risk == Risk::Danger).then(|| DELETE_WORD.to_string()),
+    let item = Item::new(Category::AgentWorktrees, label, detail, bytes, risk, action);
+    match risk {
+        Risk::Danger => item.with_typed_delete(),
+        _ => item,
     }
 }
 
@@ -429,18 +221,16 @@ fn prune_item(repo: &Path, missing: usize, home: &Path) -> Option<Item> {
     let name = repo
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    Some(Item {
-        category: Category::AgentWorktrees,
-        label: format!("Stale worktree records in {name}"),
-        detail: prune_detail(missing, repo, home),
-        bytes: 0,
-        risk: Risk::Safe,
-        action: Action::PruneWorktrees {
+    Some(Item::new(
+        Category::AgentWorktrees,
+        format!("Stale worktree records in {name}"),
+        prune_detail(missing, repo, home),
+        0,
+        Risk::Safe,
+        Action::PruneWorktrees {
             repo: repo.to_path_buf(),
         },
-        preselected: true,
-        typed_confirmation: None,
-    })
+    ))
 }
 
 struct Env {
@@ -454,7 +244,7 @@ fn scan_repo(repo: &Path, ctx: &Env) -> Vec<Item> {
     };
     let linked: Vec<WorktreeEntry> = parse_porcelain(&listing)
         .into_iter()
-        .filter(|entry| !entry.bare && !entry.locked && canonical(&entry.path) != repo)
+        .filter(|entry| !entry.bare && !entry.locked && canonical_or_self(&entry.path) != repo)
         .collect();
     let unplugged = linked.iter().any(|entry| !volume_is_mounted(&entry.path));
     let (missing, present): (Vec<_>, Vec<_>) = linked.into_iter().partition(folder_is_missing);
@@ -470,12 +260,8 @@ fn scan_repo(repo: &Path, ctx: &Env) -> Vec<Item> {
 }
 
 pub fn scan(ctx: &ScanContext) -> Vec<Item> {
-    let git = ctx
-        .tools
-        .get("git")
-        .map_or_else(|| PathBuf::from("git"), Path::to_path_buf);
     let env = Env {
-        git,
+        git: git::program(&ctx.tools).to_path_buf(),
         home: ctx.home.clone(),
     };
     find_repos(&ctx.config.dev_roots, &ctx.config.exclude)
