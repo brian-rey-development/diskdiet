@@ -7,6 +7,11 @@ use diskdiet::infra::sys::tools::Tools;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const CONFIRMED_ONE_DIRTY: Removal = Removal::Forced {
+    dirty: 1,
+    risky_ignored: 0,
+};
+
 fn remove(repo: &Path, worktree: &Path, removal: Removal) -> Outcome {
     let action = Action::RemoveWorktree {
         repo: repo.to_path_buf(),
@@ -49,8 +54,20 @@ fn typed_confirmation_removes_a_dirty_worktree() -> Result<()> {
     let (_tmp, root) = temp_root()?;
     let (repo, worktree) = repo_with_worktree(&root, "feature")?;
     fs::write(worktree.join("scratch.txt"), "uncommitted")?;
-    assert_eq!(remove(&repo, &worktree, Removal::Forced), Outcome::Done);
+    assert_eq!(remove(&repo, &worktree, CONFIRMED_ONE_DIRTY), Outcome::Done);
     assert!(!worktree.exists());
+    Ok(())
+}
+
+#[test]
+fn typed_confirmation_is_void_when_more_files_changed_after_it() -> Result<()> {
+    let (_tmp, root) = temp_root()?;
+    let (repo, worktree) = repo_with_worktree(&root, "feature")?;
+    fs::write(worktree.join("scratch.txt"), "uncommitted")?;
+    fs::write(worktree.join("later.txt"), "written after the confirmation")?;
+    let outcome = remove(&repo, &worktree, CONFIRMED_ONE_DIRTY);
+    assert!(matches!(outcome, Outcome::Skipped(_)), "{outcome:?}");
+    assert!(worktree.join("later.txt").exists());
     Ok(())
 }
 
@@ -95,5 +112,14 @@ fn prune_is_skipped_for_a_locked_worktree_on_an_unplugged_drive() -> Result<()> 
     fs::write(&gitdir, "/Volumes/diskdiet-test-unplugged/wt/.git\n")?;
     assert!(matches!(prune(&repo), Outcome::Skipped(_)));
     assert!(gitdir.exists());
+    Ok(())
+}
+
+#[test]
+fn remove_worktree_refuses_a_path_the_guard_rejects() -> Result<()> {
+    let (_tmp, root) = temp_root()?;
+    let (repo, _worktree) = repo_with_worktree(&root, "feature")?;
+    let outcome = remove(&repo, Path::new("relative/wt"), Removal::Rechecked);
+    assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
     Ok(())
 }

@@ -53,11 +53,15 @@ fn removal_item(
     label: &str,
     detail: String,
     bytes: u64,
-    risk: Risk,
+    assessment: &Assessment,
     worktree: Worktree<'_>,
 ) -> Item {
+    let risk = assessment.risk();
     let removal = match risk {
-        Risk::Danger => Removal::Forced,
+        Risk::Danger => Removal::Forced {
+            dirty: assessment.dirty,
+            risky_ignored: assessment.risky_ignored,
+        },
         _ => Removal::Rechecked,
     };
     let action = Action::RemoveWorktree {
@@ -67,7 +71,7 @@ fn removal_item(
     };
     let item = Item::new(Category::AgentWorktrees, label, detail, bytes, risk, action);
     match removal {
-        Removal::Forced => item.with_typed_delete(),
+        Removal::Forced { .. } => item.with_typed_delete(),
         Removal::Rechecked => item,
     }
 }
@@ -100,13 +104,7 @@ pub(super) fn worktree_item(
         repo,
         path: &entry.path,
     };
-    Some(removal_item(
-        branch,
-        detail,
-        bytes,
-        assessment.risk(),
-        worktree,
-    ))
+    Some(removal_item(branch, detail, bytes, &assessment, worktree))
 }
 
 fn prune_detail(missing: usize, repo: &Path, home: &Path) -> String {

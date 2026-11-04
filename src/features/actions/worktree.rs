@@ -20,11 +20,11 @@ pub(super) fn remove_worktree(
     worktree: &Path,
     removal: Removal,
 ) -> Outcome {
-    if removal == Removal::Rechecked && changed_since_scan(tools, worktree) {
+    if changed_since_scan(tools, worktree, removal) {
         return Outcome::Skipped(CHANGED_SINCE_SCAN.to_owned());
     }
     let mut remove = git::command(git::program(tools), repo, &["worktree", "remove"]);
-    if removal == Removal::Forced {
+    if matches!(removal, Removal::Forced { .. }) {
         remove.arg("--force");
     }
     capture_shielded_from_ctrl_c(remove.arg("--").arg(worktree))
@@ -38,9 +38,16 @@ pub(super) fn prune_worktrees(tools: &Tools, repo: &Path) -> Outcome {
     capture_shielded_from_ctrl_c(&mut prune)
 }
 
-fn changed_since_scan(tools: &Tools, worktree: &Path) -> bool {
+fn changed_since_scan(tools: &Tools, worktree: &Path, removal: Removal) -> bool {
+    let (seen_dirty, seen_risky_ignored) = match removal {
+        Removal::Rechecked => (0, 0),
+        Removal::Forced {
+            dirty,
+            risky_ignored,
+        } => (dirty, risky_ignored),
+    };
     local_changes(git::program(tools), worktree)
-        .is_none_or(|counts| counts.dirty > 0 || counts.risky_ignored > 0)
+        .is_none_or(|now| now.dirty > seen_dirty || now.risky_ignored > seen_risky_ignored)
 }
 
 fn prune_refusal(tools: &Tools, repo: &Path) -> Option<&'static str> {

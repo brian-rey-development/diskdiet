@@ -62,7 +62,7 @@ fn delete_path_refuses_root_and_relative_paths() {
 }
 
 #[test]
-fn delete_path_in_read_only_parent_needs_full_disk_access() -> Result<()> {
+fn delete_path_in_read_only_parent_fails_without_asking_for_full_disk_access() -> Result<()> {
     let temp = TempDir::new()?;
     let locked = temp.path().join("locked");
     fs::create_dir(&locked)?;
@@ -72,7 +72,7 @@ fn delete_path_in_read_only_parent_needs_full_disk_access() -> Result<()> {
     set_mode(&locked, READ_ONLY_DIR_MODE)?;
     let outcome = delete(&victim);
     set_mode(&locked, RWX_MODE)?;
-    assert_eq!(outcome, Outcome::NeedsFullDiskAccess);
+    assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
     assert!(victim.exists());
     Ok(())
 }

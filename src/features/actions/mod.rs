@@ -8,8 +8,12 @@ use crate::domain::safety::is_safe_delete_target;
 use crate::infra::sys::log;
 use crate::infra::sys::platform;
 use crate::infra::sys::tools::Tools;
+use rustix::io::Errno;
 use std::io;
 use std::path::Path;
+
+const PERMISSION_DENIED: &str =
+    "permission denied, something inside is read-only or belongs to another user";
 
 pub use trash::{applescript_escape, trash_script};
 
@@ -32,7 +36,9 @@ pub fn perform(action: &Action, tools: &Tools) -> Outcome {
             repo,
             worktree,
             removal,
-        } => worktree::remove_worktree(tools, repo, worktree, *removal),
+        } => guarded(worktree, |worktree| {
+            worktree::remove_worktree(tools, repo, worktree, *removal)
+        }),
         Action::PruneWorktrees { repo } => worktree::prune_worktrees(tools, repo),
     }
 }
@@ -51,9 +57,14 @@ fn guarded(path: &Path, run: impl FnOnce(&Path) -> Outcome) -> Outcome {
     run(path)
 }
 
+fn is_privacy_block(error: &io::Error) -> bool {
+    cfg!(target_os = "macos") && Errno::from_io_error(error) == Some(Errno::PERM)
+}
+
 fn io_outcome(error: &io::Error) -> Outcome {
     match error.kind() {
-        io::ErrorKind::PermissionDenied => Outcome::NeedsFullDiskAccess,
+        io::ErrorKind::PermissionDenied if is_privacy_block(error) => Outcome::NeedsFullDiskAccess,
+        io::ErrorKind::PermissionDenied => Outcome::Failed(PERMISSION_DENIED.to_owned()),
         io::ErrorKind::NotFound => Outcome::Skipped("already gone".to_owned()),
         _ => Outcome::Failed(error.to_string()),
     }

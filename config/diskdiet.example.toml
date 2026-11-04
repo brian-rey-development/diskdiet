@@ -8,6 +8,7 @@
 dev_roots = []
 
 # Paths diskdiet never reports or touches, including everything below them.
+# A path through a symlink also protects the real folder it points to.
 exclude = []
 
 # Extra cache folders to offer as Safe and preselected, such as ["~/.cache/my-tool"].
@@ -19,7 +20,7 @@ stale_app_days = 90
 # Files at the top level of ~/Downloads older than this many days are offered for review.
 stale_download_days = 90
 
-# node_modules of projects whose package.json is older than this many days are offered for review.
+# node_modules not installed or changed, and whose package.json was not edited, for this many days are offered for review.
 stale_node_modules_days = 30
 
 # Docker images and build cache newer than this many hours are kept (720 is 30 days).

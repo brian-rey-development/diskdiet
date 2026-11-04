@@ -20,7 +20,7 @@ A worktree with zero commits ahead of its base looks finished but can still hold
 
 ## 5. Dangerous worktrees need a typed confirmation
 
-A tick is too easy to hit in a long list, so a `Danger` worktree is never preselected and is included only after you type `delete`, and any other input skips it. Ticking one while editing a category from the review screen asks again. Since the owning agent may still be writing minutes after the scan, only a worktree you confirmed by typing is removed with `git worktree remove --force`. The others are rechecked right before removal, skipped with "it changed since the scan" if anything new appeared, and removed without `--force`, so git itself refuses on uncommitted files.
+A tick is too easy to hit in a long list, so a `Danger` worktree is never preselected and is included only after you type `delete`, and any other input skips it. Ticking one while editing a category from the review screen asks again. Since the owning agent may still be writing minutes after the scan, only a worktree you confirmed by typing is removed with `git worktree remove --force`, and only if it has no more changed or risky ignored files than the scan showed you. If the agent wrote more after you typed `delete`, the worktree is skipped with "it changed since the scan". The others are rechecked right before removal, skipped with "it changed since the scan" if anything new appeared, and removed without `--force`, so git itself refuses on uncommitted files.
 
 ## 6. Worktrees whose folder is gone are pruned, not deleted
 
@@ -36,7 +36,7 @@ Starting a container runtime just to measure it can take minutes and gigabytes o
 
 ## 9. Permission errors are expected, and explained
 
-On macOS, deleting inside `~/.Trash` needs Full Disk Access and root-owned apps such as iMovie cannot be moved with plain file APIs, so trashing and emptying go through Finder. A delete that fails for permissions reports `NeedsFullDiskAccess` with the System Settings path to grant it. On Linux the Trash is the freedesktop.org one in `~/.local/share/Trash`, restorable from file managers, and a file on another drive is reported instead of copied.
+On macOS, deleting inside `~/.Trash` needs Full Disk Access and root-owned apps such as iMovie cannot be moved with plain file APIs, so trashing and emptying go through Finder. A delete that macOS blocks for privacy (`EPERM`) reports `NeedsFullDiskAccess` with the System Settings path to grant it. A plain permission error (`EACCES`), such as a read-only folder inside the tree, is reported as a failure, because Full Disk Access would not fix it. On Linux the Trash is the freedesktop.org one in `~/.local/share/Trash`, restorable from file managers, and a file on another drive is reported instead of copied.
 
 ## 10. Regenerable data is removed in a way that frees space now
 
@@ -60,7 +60,7 @@ Every executed action is appended with a timestamp and outcome to `~/Library/Log
 
 ## 15. Some paths can never be deleted
 
-Every delete and move to the Trash passes one guard, whatever the scanner or config says. It refuses relative paths and `..`, your home folder and everything above it (`/Users`, `/`), anything directly inside your home (`~/Documents`, `~/.cache`, `~/Library`), `/Users` or `/home`, and every mount root and mount point with its parents (`/Volumes/X`, `/mnt/x`, `/media/me/Drive`, `/run/media/me`). Case is ignored, as macOS volumes mostly do. A config line such as `extra_cache_dirs = ["~"]` produces no item at all.
+Every delete, move to the Trash and worktree removal passes one guard, whatever the scanner or config says. It refuses relative paths and `..`, your home folder and everything above it (`/Users`, `/`), anything directly inside your home (`~/Documents`, `~/.cache`, `~/Library`), `/Users` or `/home`, and every mount root and mount point with its parents (`/Volumes/X`, `/mnt/x`, `/media/me/Drive`, `/run/media/me`). Case is ignored, as macOS volumes mostly do. A config line such as `extra_cache_dirs = ["~"]` produces no item at all.
 
 ## 16. Context can only make an item riskier
 

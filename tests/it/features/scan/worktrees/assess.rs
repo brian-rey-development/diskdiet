@@ -122,7 +122,7 @@ fn worktrees_with_submodules_are_danger_because_git_needs_force() -> Result<()> 
     assert!(matches!(
         item.action,
         Action::RemoveWorktree {
-            removal: Removal::Forced,
+            removal: Removal::Forced { .. },
             ..
         }
     ));

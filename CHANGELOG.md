@@ -36,6 +36,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `--only` no longer hides risk. A Safe cache folder that contains a worktree or an AI model now shows as Review or Danger even when you ask for one category.
 - Deleting an app cache is skipped when `ps` cannot be run, instead of assuming the app is not running.
 - External commands no longer hang when their exit watcher fails, and a broken output pipe is reported as a failure instead of partial output.
+- An `exclude` path written through a symlink now also protects the real folder. Before, `--root ~/link` scanned the resolved path, so an exclusion such as `~/link/keep` did not match and its contents could be offered.
+- A dev root reachable under two names, such as a folder and a symlink to it, is scanned once, so its items are no longer listed and counted twice.
+- A worktree you confirmed by typing `delete` is skipped if more files changed after the scan, instead of being removed with `--force` regardless.
+- Worktree removal now passes the same path guard as deletes and moves to the Trash.
+- `node_modules` counts as stale only when neither `package.json` nor the folder itself changed within `stale_node_modules_days`, so a project installed today is no longer offered as stale.
+- A permission error is reported as a Full Disk Access problem only when macOS blocks the operation for privacy. A read-only folder, or any permission error on Linux, is reported as a plain failure.
+- The layer test also catches grouped and aliased imports of `crate::features` and `super::actions` or `super::scan`, which slipped past it before.
 
 ## [0.1.0] - Unreleased
 
