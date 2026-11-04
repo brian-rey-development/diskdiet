@@ -28,6 +28,7 @@ pub(crate) fn load_settings(args: &Args) -> anyhow::Result<(PathBuf, Config)> {
     for root in &args.roots {
         config.dev_roots.push(checked_root(root, &home)?);
     }
+    config.dev_roots = config::without_aliases(config.dev_roots);
     Ok((home, config))
 }
 

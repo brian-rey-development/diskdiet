@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 const BUILD_SCAN_MAX_DEPTH: usize = 12;
 const NODE_MODULES: &str = "node_modules";
@@ -115,13 +116,16 @@ fn is_linked_worktree(dir: &Path) -> bool {
         .is_ok_and(|text| text.starts_with("gitdir:") && text.contains(LINKED_WORKTREE_MARKER))
 }
 
+fn modified_time(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
 fn node_modules_is_stale(dir: &Path, stale_days: u64) -> bool {
-    let modified = dir
+    let manifest = dir
         .parent()
-        .map(|parent| parent.join(PACKAGE_JSON))
-        .and_then(|manifest| fs::metadata(manifest).ok())
-        .and_then(|meta| meta.modified().ok());
-    modified.is_some_and(|time| secs_since(time) >= stale_days.saturating_mul(SECS_PER_DAY))
+        .and_then(|parent| modified_time(&parent.join(PACKAGE_JSON)));
+    let newest = manifest.zip(modified_time(dir)).map(|(a, b)| a.max(b));
+    newest.is_some_and(|time| secs_since(time) >= stale_days.saturating_mul(SECS_PER_DAY))
 }
 
 fn is_excluded(dir: &Path, ctx: &ScanContext) -> bool {

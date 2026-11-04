@@ -68,6 +68,26 @@ fn distinct_existing_dirs(candidates: impl Iterator<Item = PathBuf>) -> Vec<Path
         .collect()
 }
 
+pub fn without_aliases(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen_inodes = HashSet::new();
+    paths
+        .into_iter()
+        .filter(|path| {
+            std::fs::metadata(path)
+                .map_or(true, |meta| seen_inodes.insert((meta.dev(), meta.ino())))
+        })
+        .collect()
+}
+
+fn with_resolved_forms(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let resolved: Vec<PathBuf> = paths
+        .iter()
+        .filter_map(|path| std::fs::canonicalize(path).ok())
+        .filter(|resolved| !paths.contains(resolved))
+        .collect();
+    paths.into_iter().chain(resolved).collect()
+}
+
 pub fn default_dev_roots(home: &Path) -> Vec<PathBuf> {
     distinct_existing_dirs(DEFAULT_DEV_ROOT_NAMES.iter().map(|name| home.join(name)))
 }
@@ -120,6 +140,7 @@ pub fn load(explicit: Option<&Path>, home: &Path) -> anyhow::Result<Config> {
     require_absolute("dev_roots", &config.dev_roots)?;
     require_absolute("exclude", &config.exclude)?;
     require_absolute("extra_cache_dirs", &config.extra_cache_dirs)?;
+    config.exclude = with_resolved_forms(config.exclude);
     if config.dev_roots.is_empty() {
         config.dev_roots = default_dev_roots(home);
     }

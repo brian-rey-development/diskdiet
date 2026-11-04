@@ -1,6 +1,6 @@
 # Architecture
 
-diskdiet is a single Rust binary with a small library behind it, split into four layers so that the code deciding what is junk can never delete anything. Scanners return plain `Item` values and only `features/actions/` mutates the disk, so scanners can be tested on fixture folders safely.
+diskdiet is a single Rust binary with a small library behind it, split into four layers so that the code deciding what is junk never reaches the code that deletes. Scanners return plain `Item` values and only `features/actions/` mutates the disk, so scanners can be tested on fixture folders safely.
 
 ## Module map
 
@@ -29,7 +29,7 @@ src/
 
   domain/                 what diskdiet believes, independent of scanning and deleting
     model.rs              Category, Risk, Action, Item, Outcome, RunMode
-    safety.rs             is_safe_delete_target, the guard for every deletion
+    safety.rs             is_safe_delete_target, the guard for deletes, trash moves and worktree removals
     config.rs
 
   features/               the two halves of a run, which never import each other

@@ -5,7 +5,7 @@ use crate::support::git::{add_worktree, git, init_repo};
 use anyhow::{Result, anyhow, ensure};
 use diskdiet::domain::model::{Action, Category, Item, Risk};
 use diskdiet::features::scan::builds::{classify, scan};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -22,7 +22,7 @@ fn payload(dir: &Path) -> Result<()> {
 }
 
 fn age_file(path: &Path, days: u64) -> Result<()> {
-    let file = OpenOptions::new().write(true).open(path)?;
+    let file = File::open(path)?;
     let old = SystemTime::now() - Duration::from_secs(days * SECS_PER_DAY);
     Ok(file.set_modified(old)?)
 }
@@ -120,12 +120,23 @@ fn node_modules_is_offered_only_when_the_project_is_stale() -> Result<()> {
         write_file(&root.join(project).join("node_modules/dep/index.js"), "x")?;
     }
     age_file(&root.join("stale/package.json"), STALE_DAYS)?;
+    age_file(&root.join("stale/node_modules"), STALE_DAYS)?;
     let item = only_item(scan_root(&root))?;
     assert_eq!(
         item.action,
         Action::DeletePath(root.join("stale/node_modules"))
     );
     assert_eq!((item.risk, item.preselected), (Risk::Review, false));
+    Ok(())
+}
+
+#[test]
+fn a_recent_install_keeps_node_modules_fresh_even_with_an_old_manifest() -> Result<()> {
+    let (_tmp, root) = temp_root()?;
+    write_file(&root.join("app/package.json"), "{}")?;
+    write_file(&root.join("app/node_modules/dep/index.js"), "x")?;
+    age_file(&root.join("app/package.json"), STALE_DAYS)?;
+    assert_eq!(scan_root(&root).len(), 0);
     Ok(())
 }
 

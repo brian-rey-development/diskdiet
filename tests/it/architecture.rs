@@ -4,10 +4,22 @@ use std::path::{Path, PathBuf};
 const LAYER_RULES: [(&str, &[&str]); 4] = [
     ("infra", &["crate::domain", "crate::features", "crate::app"]),
     ("domain", &["crate::features", "crate::app"]),
-    ("features/scan", &["crate::features::actions", "crate::app"]),
-    ("features/actions", &["crate::features::scan", "crate::app"]),
+    (
+        "features/scan",
+        &["crate::features::actions", "super::actions", "crate::app"],
+    ),
+    (
+        "features/actions",
+        &["crate::features::scan", "super::scan", "crate::app"],
+    ),
 ];
-const ESCAPES: [&str; 2] = ["crate::{", "super::super"];
+const ESCAPES: [&str; 5] = [
+    "crate::{",
+    "crate::features::{",
+    "crate::features;",
+    "crate::features as",
+    "super::super",
+];
 
 fn source_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")

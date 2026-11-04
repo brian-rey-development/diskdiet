@@ -7,6 +7,11 @@ use diskdiet::infra::sys::tools::Tools;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const FORCED: Removal = Removal::Forced {
+    dirty: 1,
+    risky_ignored: 0,
+};
+
 struct DryFixture {
     dir: PathBuf,
     file: PathBuf,
@@ -43,7 +48,7 @@ fn every_variant(fx: &DryFixture) -> Vec<Action> {
         Action::RemoveWorktree {
             repo: fx.repo.clone(),
             worktree: fx.worktree.clone(),
-            removal: Removal::Forced,
+            removal: FORCED,
         },
         Action::PruneWorktrees {
             repo: fx.repo.clone(),

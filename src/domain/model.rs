@@ -95,7 +95,7 @@ pub enum RunMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Removal {
     Rechecked,
-    Forced,
+    Forced { dirty: u32, risky_ignored: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

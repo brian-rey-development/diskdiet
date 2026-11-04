@@ -63,7 +63,7 @@ fn load_reads_toml_and_expands_tilde() -> Result<()> {
         loaded.dev_roots,
         vec![home.path().join("work"), PathBuf::from("/abs/place")]
     );
-    assert_eq!(loaded.exclude, vec![home.path().to_path_buf()]);
+    assert_eq!(loaded.exclude.first(), Some(&home.path().to_path_buf()));
     assert_eq!(
         loaded.extra_cache_dirs,
         vec![home.path().join(".cache/foo")]
@@ -127,4 +127,31 @@ fn expand_tilde_only_touches_a_leading_tilde_component() {
     assert_eq!(expand("~/a/b"), PathBuf::from("/h/a/b"));
     assert_eq!(expand("~bob/a"), PathBuf::from("~bob/a"));
     assert_eq!(expand("/x/~/y"), PathBuf::from("/x/~/y"));
+}
+
+#[test]
+fn exclude_also_matches_the_resolved_path_behind_a_symlink() -> Result<()> {
+    let home = tempdir()?;
+    let project = home.path().join("real/project");
+    fs::create_dir_all(&project)?;
+    std::os::unix::fs::symlink(home.path().join("real"), home.path().join("link"))?;
+    let file = home.path().join("custom.toml");
+    fs::write(&file, "exclude = [\"~/link/project\"]\n")?;
+    let loaded = config::load(Some(&file), home.path())?;
+    assert!(loaded.exclude.contains(&home.path().join("link/project")));
+    assert!(loaded.exclude.contains(&fs::canonicalize(&project)?));
+    Ok(())
+}
+
+#[test]
+fn without_aliases_drops_a_second_name_for_the_same_folder() -> Result<()> {
+    let home = tempdir()?;
+    let real = home.path().join("real");
+    fs::create_dir(&real)?;
+    let alias = home.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias)?;
+    let missing = home.path().join("missing");
+    let kept = config::without_aliases(vec![real.clone(), alias, missing.clone()]);
+    assert_eq!(kept, vec![real, missing]);
+    Ok(())
 }
